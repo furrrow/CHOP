@@ -1,0 +1,27 @@
+# Paths
+project_root: .
+data_root: data/
+train_index: ${data_root}/train_index.json
+val_index: ${data_root}/val_index.json
+checkpoint_dir: experiments/checkpoints
+
+# Dataloader
+batch_size: 16
+num_workers: 8
+shuffle: true
+pin_memory: true
+
+# Training
+max_epochs: 10
+learning_rate: 1e-4
+weight_decay: 1e-4
+log_every: 50
+
+# Policy
+policy_name: "your_policy_name"
+freeze_backbone: false
+
+# Counterfactual loss weights
+loss:
+  action: 1.0
+  counterfactual: 1.0

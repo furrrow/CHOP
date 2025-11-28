@@ -1,0 +1,5 @@
+List any third-party code copied into this repository.
+Format: <path> - <source repo URL>@<commit> - <license>
+
+Example:
+policy_sources/habitat_policy - https://github.com/facebookresearch/habitat-lab@abc123 - MIT

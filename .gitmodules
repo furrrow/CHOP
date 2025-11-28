@@ -1,0 +1,3 @@
+[submodule "policy_sources/omnivla"]
+	path = policy_sources/omnivla
+	url = git@github.com:gershom96/OmniVLA.git
