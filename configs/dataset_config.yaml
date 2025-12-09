@@ -6,8 +6,7 @@ learn_angle: True
 num_workers: 10
 
 datasets_scand_a:
-  data_root: /home/beast-gamma/Documents/GAMMA/Projects/CHOP/data/lora-data
-  train: /home/beast-gamma/Documents/GAMMA/Projects/CHOP/data/lora-data/train.json
-  test: /home/beast-gamma/Documents/GAMMA/Projects/CHOP/data/lora-data/test.json
-  image_root: /media/beast-gamma/Media/Datasets/SCAND/images
-  
+  data_root: ./data/lora-data
+  train: ./data/lora-data/train.json
+  test: ./data/lora-data/test.json
+  image_root: ./data/lora-data/images
