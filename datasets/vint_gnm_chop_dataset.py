@@ -363,7 +363,7 @@ class ViNTChopDataset(Dataset):
             return traj_data
 
     def __len__(self) -> int:
-        return len(self.index_to_data)
+        return len(self.trajectory_cache)
 
     def __getitem__(self, i: int) -> Tuple[torch.Tensor]:
         """
