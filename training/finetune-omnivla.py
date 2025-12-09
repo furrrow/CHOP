@@ -918,6 +918,7 @@ def train_omnivla(cfg: OmniVLAConfig) -> None:
             prompt_builder_fn=PurePromptBuilder,
             image_size=config["image_size"],
             dataset_name="scand_a",
+            data_split_type=data_split_type,
             waypoint_spacing=data_config_sub["waypoint_spacing"],
             learn_angle=config["learn_angle"],
             normalize=config["normalize"],

@@ -54,6 +54,7 @@ class OmniVLAChopDataset(torch.utils.data.Dataset):
         image_transform: ImageTransform,
         image_size: Tuple[int, int],
         dataset_name: str,
+        data_split_type: str,
         data_split_folder: str,
         waypoint_spacing: int,
         learn_angle: bool,
@@ -78,6 +79,7 @@ class OmniVLAChopDataset(torch.utils.data.Dataset):
         )
         self.image_root = Path(image_root)
         self.data_split_folder = data_split_folder
+        self.data_split_type = data_split_type
         self.dataset_name = dataset_name
         self.trajectory_cache, self._image_cache = self._load_index(self.dataset_path)
         self.max_dist = max_dist
@@ -134,7 +136,7 @@ class OmniVLAChopDataset(torch.utils.data.Dataset):
             if buf is None:
                 # handle missing key gracefully
                 print(f"LMDB missing key {image_path}")
-                return None
+                return img_path_to_data(image_path, self.image_size)
             return img_path_to_data(io.BytesIO(buf), self.image_size)
         except Exception as e:
             print(f"Failed to load image {image_path}: {e}")
@@ -208,7 +210,7 @@ class OmniVLAChopDataset(torch.utils.data.Dataset):
         return trajectory_cache
 
     def _build_image_cache(self, trajectory_cache: List[Dict[str, Any]], use_tqdm: bool = True):
-        cache_filename = os.path.join(self.data_split_folder, f"dataset_{self.dataset_name}.lmdb")
+        cache_filename = os.path.join(self.data_split_folder, f"dataset_{self.dataset_name}_{self.data_split_type}.lmdb")
 
         # build the LMDB file if missing (write once)
         if not os.path.exists(cache_filename):
