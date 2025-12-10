@@ -117,7 +117,7 @@ class OmniVLAChopDataset(torch.utils.data.Dataset):
 
     def __setstate__(self, state):
         self.__dict__ = state
-        self._build_caches()
+        # self._build_caches()
 
     def _get_image_cache(self):
         # Opens LMDB lazily. When called inside a worker, this creates a worker-local env.
@@ -164,7 +164,7 @@ class OmniVLAChopDataset(torch.utils.data.Dataset):
         if self.normalize:
             metric_spacing = self.data_config.get("metric_waypoint_spacing", 1.0)
             # print( "metric_spacing:", metric_spacing )
-            actions = actions / (metric_spacing * self.waypoint_spacing)
+            actions[:, :2] /= (metric_spacing * self.waypoint_spacing)
         return actions.float()
         
     def _compute_actions(self, action_data: Dict[str, torch.Tensor], 
@@ -175,6 +175,11 @@ class OmniVLAChopDataset(torch.utils.data.Dataset):
         neg_actions = self._process_actions(action_data.get("path_1", {}))
 
         goal_pos = to_local_coords_tensor(goal_pos, current_pos, current_yaw)
+
+        if self.normalize:
+            # Normalizing pos_actions and neg_actions already done in _process_actions
+            metric_spacing = self.data_config.get("metric_waypoint_spacing", 1.0)
+            goal_pos /= (metric_spacing * self.waypoint_spacing)
         goal_yaw_loc = goal_yaw - current_yaw
 
         return pos_actions, neg_actions, goal_pos, goal_yaw_loc
