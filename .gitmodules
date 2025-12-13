@@ -6,4 +6,4 @@
 	url = git@github.com:gershom96/visualnav-transformer.git
 [submodule "policy_sources/diffusion_policy"]
 	path = policy_sources/diffusion_policy
-	url = git@github.com:real-stanford/diffusion_policy.git
+	url = https://github.com/gershom96/diffusion_policy.git
