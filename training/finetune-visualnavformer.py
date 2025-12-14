@@ -128,7 +128,7 @@ def main(config):
         shuffle=True,
         num_workers=config["num_workers"],
         drop_last=False,
-        persistent_workers=False,
+        persistent_workers=True,
     )
 
     if "eval_batch_size" not in config:
@@ -358,7 +358,7 @@ def main(config):
 
 
 if __name__ == "__main__":
-    torch.multiprocessing.set_start_method("spawn")
+    torch.multiprocessing.set_start_method("fork", force=True)
 
     parser = argparse.ArgumentParser(description="Visual Navigation Transformer")
 

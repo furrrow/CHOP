@@ -132,6 +132,7 @@ class VisualNavTformerCHOPDataset(Dataset):
     
     def __setstate__(self, state):
         self.__dict__ = state
+        self._image_cache = None
         # self._build_caches()
     
     def __len__(self) -> int:
