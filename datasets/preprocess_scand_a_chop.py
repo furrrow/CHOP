@@ -187,7 +187,6 @@ def preprocess_scand(
 
     return train_count, test_count
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Preprocess SCAND-A annotations into a flat index of image/trajectory pairs."
