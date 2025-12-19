@@ -1,19 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
-
-import numpy as np
-
-
-@dataclass
-class FrameItem:
-    frame_idx: int
-    image: np.ndarray
-    laserscan: Optional[np.ndarray] = None
-    pos: Optional[np.ndarray] = None
-    yaw: Optional[float] = None
-    cum_distance: float = 0.0
-    goal_idx: int = -1
-
 import glob
 import os
 import json
@@ -27,9 +12,6 @@ from scipy.spatial.transform import Rotation as R
 import torch
 from pathlib import Path
 
-import rosbag
-from sensor_msgs.msg import LaserScan
-from evaluation.metrics.obs_proximity import min_clearance_to_obstacles_ls
 from cv_bridge import CvBridge
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 
@@ -43,21 +25,17 @@ from PIL import Image as PILImage
 class FrameItem:
     frame_idx: int
     image: np.ndarray
-    laserscan: np.ndarray
-    angle_min: float
-    angle_increment: float
-    range_min: float
-    range_max: float
-    pos: np.ndarray
-    yaw: float
+    laserscan: Optional[np.ndarray] = None
+    pos: Optional[np.ndarray] = None
+    yaw: Optional[float] = None
     cum_distance: float = 0.0
     goal_idx: int = -1
 
 class InferenceConfigOriginal:
     resume: bool = True
     # vla_path: str = "./omnivla-original"
-    # resume_step: Optional[int] = 120000    
-    vla_path: str = "./omnivla-finetuned-cast"   
+    # resume_step: Optional[int] = 120000
+    vla_path: str = "./weights/omnivla-finetuned-cast"   
     resume_step: Optional[int] = 210000
     use_l1_regression: bool = True
     use_diffusion: bool = False
@@ -71,8 +49,8 @@ class InferenceConfigFinetuned:
     resume: bool = True
     # vla_path: str = "./omnivla-original"
     # resume_step: Optional[int] = 120000    
-    vla_path: str = "./omnivla-finetuned-cast"   
-    resume_step: Optional[int] = 210000
+    vla_path: str = "./weights/omnivla-finetuned-chop"   
+    resume_step: Optional[int] = 222500
     use_l1_regression: bool = True
     use_diffusion: bool = False
     use_film: bool = False
@@ -82,13 +60,11 @@ class InferenceConfigFinetuned:
     lora_dropout: float = 0.0
     
 class BaseEvaluator():
-    def __init__(self, bag_dir: str, output_path: str, test_train_split_path: str, bags_to_skip: str,
-                 model: str, downsample_factor: int = 6, sample_goals: bool = True,
-                 max_distance: float = 20.0, min_distance: float = 2.0):
+    def __init__(self, bag_dir: str, output_path: str, test_train_split_path: str, model: str, downsample_factor: int = 6, 
+                 sample_goals: bool = True, max_distance: float = 20.0, min_distance: float = 2.0):
         self.bag_dir = bag_dir
         self.bridge = CvBridge()
         self.test_train_split_path = test_train_split_path
-        self.bags_to_skip = bags_to_skip
         self.output_path = output_path
         self.downsample_factor = downsample_factor
         self.model_name = model
@@ -99,48 +75,55 @@ class BaseEvaluator():
 
         self.frames: list[FrameItem] = []
 
-        parser = argparse.ArgumentParser(description="Visual Navigation Transformer")
+        parser = argparse.ArgumentParser(description="Config to model")
         parser.add_argument(
             "--config",
             "-c",
             default=f"configs/chop_{self.model_name}_vnt.yaml",
             type=str,
-            help="Path to the config file in train_config folder",
+            help="Path to the config file in config folder",
         )
         args = parser.parse_args()
 
-        with open("configs/chop_default_vnt.yaml", "r") as f:
-            default_config = yaml.safe_load(f)
+        if self.model_name in {"vint", "gnm", "nomad"}:
+            with open("configs/chop_default_vnt.yaml", "r") as f:
+                default_config = yaml.safe_load(f)
 
-        config = default_config
+            config = default_config
 
-        with open(args.config, "r") as f:
-            user_config = yaml.safe_load(f)
+            with open(args.config, "r") as f:
+                user_config = yaml.safe_load(f)
 
-        config.update(user_config)
+            config.update(user_config)
+        else:
+            with open("configs/chop_omnivla.yaml", "r") as f:
+                config = yaml.safe_load(f)
+
         self.config = config
         self.context_frames = self.config.get("context_size", 0)
         self._eval_name = "base_eval"
+        self.log_file_path = None
+        self.log_file_path_ft = None
+        self.bag_name = None
 
-    def load_model(self, finetuned: bool = True):
+        self.vla_config = InferenceConfigOriginal()
+        self.vla_config_finetuned = InferenceConfigFinetuned()
+
+    def _open_output_files(self):
+        output_dir = os.path.join(self.output_path, self._eval_name)
+        os.makedirs(output_dir, exist_ok=True)
+
+        self.log_file_path = os.path.join(output_dir, f"{self._eval_name}_results.log")
+        self.log_file_path_ft = os.path.join(output_dir, f"{self._eval_name}_results_finetuned.log")
+
+    def load_model(self, finetuned: bool = True, ):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        if finetuned:
-            ckpt_path = self.config.get("finetuned_model_path")
-            vla_config = InferenceConfigFinetuned()
-        else:
-            ckpt_path = self.config.get("pretrained_model_path")
-            vla_config = InferenceConfigOriginal()
-        
-        if ckpt_path is not None:
-            ckpt_path = Path(ckpt_path)
-            if not ckpt_path.is_absolute():
-                ckpt_path = Path.cwd() / ckpt_path
 
         model = None
         noise_scheduler = None
-
+        
         if self.config.get("model_type") in {"vint", "gnm", "nomad"}:
+            ckpt_path = self.config["chop_finetuned_path"] if finetuned else self.config["pretrained_model_path"]
             model = deployment_load_model(str(ckpt_path), self.config, device)
 
             if self.model_name == "nomad":
@@ -152,6 +135,11 @@ class BaseEvaluator():
                 )
 
         elif self.model_name == "omnivla":
+            if finetuned:
+                vla_config = self.vla_config_finetuned
+            else:
+                vla_config = self.vla_config
+
             model = Inference(save_dir="./inference",
                             ego_frame_mode=True,
                             save_images=False, 
@@ -163,9 +151,13 @@ class BaseEvaluator():
         if model is None:
             raise RuntimeError("Model failed to initialize.")
 
-        model.to(device)
-        model.eval()
-        model.requires_grad_(False)
+        # Some wrappers (e.g., OmnivLA Inference) are not nn.Modules; guard attribute usage.
+        if hasattr(model, "to"):
+            model.to(device)
+        if hasattr(model, "eval"):
+            model.eval()
+        if hasattr(model, "requires_grad_"):
+            model.requires_grad_(False)
         return model, noise_scheduler
 
     def run_inference(self, model, frame: FrameItem, goal_frame: FrameItem, noise_scheduler=None):
@@ -236,9 +228,17 @@ class BaseEvaluator():
                                     goal_compass=goal_yaw, 
                                     lan_inst_prompt=None)
             model.run()
-            path_xy = model.waypoints[:, :2] * model.metric_waypoint_spacing  # Convert to meters
+            waypoints = model.waypoints.reshape(-1, model.waypoints.shape[-1])
+            path_xy = waypoints[:, :2] * model.metric_waypoint_spacing  # Convert to meters
         else:
             raise ValueError(f"Unsupported model type: {self.model_name}")
+
+        # Normalize to shape (N, 2) for downstream metrics
+        path_xy = np.asarray(path_xy)
+        if path_xy.ndim == 3:
+            path_xy = path_xy.reshape(-1, path_xy.shape[-1])
+        if path_xy.shape[-1] > 2:
+            path_xy = path_xy[:, :2]
 
         return path_xy
     
@@ -254,19 +254,51 @@ class BaseEvaluator():
             else:
                 self.frames[i].goal_idx = j
 
-    def process_bag(self, bag_path: str):
+    def process_bag(self):
         # Placeholder for bag processing logic
         return
 
-    def analyze_bag(self, finetuned: bool = True):
+    def analyze_bag(self):
         # Placeholder for analysis logic
         return 
 
-    def log_metrics(self):
-        return 
-    
-    def calculate_statistics(self):
-        return
+    def log_metrics(self, evaluations, finetuned: bool = True):
+        if self.log_file_path is None or self.log_file_path_ft is None:
+            self._open_output_file()
+
+        if finetuned:
+            log_file_path = self.log_file_path_ft
+        else:
+            log_file_path = self.log_file_path
+
+        mean, std = self.calculate_statistics(evaluations)
+        if mean is None or std is None:
+            return
+
+        bag_stem = Path(self.bag_name).stem
+        evaluations = [float(val) for val in evaluations] if evaluations else []
+
+        with open(log_file_path, "a") as f:
+            json_record = {
+                "bag": bag_stem,
+                "frame_count": len(self.frames),
+                "data": evaluations,
+                "mean": mean,
+                "std": std,
+            }
+            f.write(json.dumps(json_record) + "\n")  # one object per line
+
+
+            print(f"[INFO] Evaluation results for {self.bag_name} {self._eval_name}: {mean:.4f} ± {std:.4f}\n")
+
+    def calculate_statistics(self, evaluations: list):
+        if not evaluations:
+            print("[WARNING] No evaluations to calculate statistics.")
+            return None, None
+
+        mean = float(np.mean(evaluations))
+        std = float(np.std(evaluations))
+        return mean, std
 
     def run(self):
         bag_files = sorted(glob.glob(os.path.join(self.bag_dir, "*.bag")))
@@ -274,19 +306,23 @@ class BaseEvaluator():
         if not bag_files:
             print(f"[ERROR] No .bag files found in {self.bag_dir}")
             return
-        
+        else:
+            print(f"[INFO] Found {len(bag_files)} .bag files in {self.bag_dir}")
         with open(self.test_train_split_path, 'r') as f:
             test_train_bags = json.load(f)
 
         for bp in bag_files:
-            bag_name = os.path.basename(bp)
-            if test_train_bags.get(bag_name, "train") == "train":
+            self.bag_name = Path(os.path.basename(bp)).stem
+            if test_train_bags.get(self.bag_name, "train") == "train":
+                print(f"[INFO] Skipping training bag: {self.bag_name}")
                 continue
             
+            print(f"\n[INFO] Evaluating bag: {self.bag_name}")
             self.process_bag(bp)
             eval_finetuned = self.analyze_bag(finetuned=True)
             eval_pretrained = self.analyze_bag(finetuned=False)
-
+            self.log_metrics(eval_pretrained, finetuned=False)
+            self.log_metrics(eval_finetuned, finetuned=True)
             self.sample_goals = True
 
         print(f"\n[DONE] Annotations written to {self.output_path}")

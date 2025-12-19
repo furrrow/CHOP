@@ -6,3 +6,6 @@ datasets/__pycache__/
 sbatch-scripts/
 logs/
 chop.egg-info/
+evaluation/__pycache__/
+evaluation/utils/__pycache__/
+evaluation/metrics/__pycache__/

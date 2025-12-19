@@ -42,6 +42,7 @@ def min_clearance_to_obstacles_ls(path_xy, laserscan, angle_increment, angle_min
     if obs_xy.size == 0:
         return np.inf
 
+    # print(path_xy)
     path_xy = interpolate_path(path_xy, step=0.1)
     tree = cKDTree(obs_xy)
     dists, _ = tree.query(path_xy)
