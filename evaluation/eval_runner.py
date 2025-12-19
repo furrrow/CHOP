@@ -69,6 +69,7 @@ class FrameItem:
     frame_idx: int
     image: np.ndarray
     image_path : str
+    timestamp: int
     path_ft: Optional[np.ndarray] = None
     path_bl: Optional[np.ndarray] = None
     path_gt: Optional[np.ndarray] = None
@@ -428,6 +429,7 @@ class EvalRunner:
                                 frame_idx=count,
                                 image=cv_img,
                                 image_path=image_path,
+                                timestamp=int(str(t)),
                                 laserscan=ranges,
                                 angle_min=angle_min,
                                 angle_increment=angle_increment,
