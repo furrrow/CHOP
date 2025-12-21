@@ -113,7 +113,7 @@ class EvalRunner:
         self.sample_goals = sample_goals
         self.max_distance = max_distance
         self.min_distance = min_distance
-        self.inference_out = inference_out
+        self.inference_out = Path(inference_out)
 
         self.output_path = Path(output_path)
         self.output_path.mkdir(parents=True, exist_ok=True)
@@ -512,6 +512,7 @@ if __name__ == "__main__":
     # model_name = "omnivla"
     # dataset_split = "./data/annotations/test-train-split.json"
     # pref_annotations_path = "./data/annotations/preferences"
+    # image_root = "/media/beast-gamma/Media/Datasets/SCAND/images/"
     # bag_dir = "/media/beast-gamma/Media/Datasets/SCAND/rosbags/"
 
     output_paths = "./outputs/evals/"
