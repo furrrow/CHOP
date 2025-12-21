@@ -18,6 +18,8 @@ conda create -n chop python=3.10 -y
 conda activate chop
 git submodule update --init --recursive
 pip install -e .
+pip install huggingface-hub==0.25.2 --no-dependencies
+export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libffi.so.7
 ```
 
 ## Using third-party policy code

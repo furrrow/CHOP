@@ -91,6 +91,7 @@ class EvalRunner:
         inference_out: str,
         test_train_split_path: str,
         pref_annotations_path: str,
+        image_root: str,
         model: str,
         fov_angle: float = 90.0,
         num_points: int = 8,
@@ -103,6 +104,7 @@ class EvalRunner:
         self.bag_name = None
         self.pref_annotations_path = pref_annotations_path
         self.pref_annotations = None
+        self.image_root = Path(image_root)
         self.test_train_split_path = test_train_split_path
         self.model_name = model
         self.num_points = num_points
@@ -147,7 +149,6 @@ class EvalRunner:
 
         self.config = config
         self.context_frames = self.config.get("context_size", 0)
-        self.image_root = Path("/media/beast-gamma/Media/Datasets/SCAND/images/")
 
     def _get_timestamps_from_expert_annotations(self):
         self.pref_file = os.path.join(self.pref_annotations_path, f"{Path(self.bag_name).stem}.json")
@@ -497,12 +498,20 @@ class EvalRunner:
 
 if __name__ == "__main__":
 
+    # output_paths = "./outputs/evals/"
+    # inference_out = "./outputs/trajectories/"
+    # model_name = "omnivla"
+    # dataset_split = "./data/annotations/test-train-split.json"
+    # pref_annotations_path = "./data/annotations/preferences"
+    # bag_dir = "/media/beast-gamma/Media/Datasets/SCAND/rosbags/"
+
     output_paths = "./outputs/evals/"
     inference_out = "./outputs/trajectories/"
-    model_name = "omnivla"
+    model_name = "nomad"  # omnivla, nomad, gnm, vint
     dataset_split = "./data/annotations/test-train-split.json"
     pref_annotations_path = "./data/annotations/preferences"
-    bag_dir = "/media/beast-gamma/Media/Datasets/SCAND/rosbags/"
+    image_root = "/home/SCAND/images"
+    bag_dir = "/home/SCAND/rosbags"
 
     proximity_evaluator = ProximityEvaluator(output_path=output_paths, scand=True, model=model_name)
     goal_distance_evaluator = GoalDistanceEvaluator(output_path=output_paths, scand=True, model=model_name)
@@ -519,6 +528,7 @@ if __name__ == "__main__":
         inference_out=inference_out,
         test_train_split_path=dataset_split,
         pref_annotations_path=pref_annotations_path,
+        image_root = image_root,
         model=model_name,
         fov_angle=90.0,
         num_points=8,

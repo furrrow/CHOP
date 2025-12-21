@@ -1,35 +1,36 @@
 {
-  "name": "foxy desktop",
+  "name": "noetic desktop-full",
   "dockerFile": "Dockerfile",
   "runArgs": [
     "--privileged",
     "--network=host",
-    "--gpus=all",
+	"--gpus=all",
     "--device-cgroup-rule=c 189:* rmw",
   ],
   "workspaceMount": "source=${localWorkspaceFolder},target=/${localWorkspaceFolderBasename},type=bind",
   "workspaceFolder": "/${localWorkspaceFolderBasename}",
   "mounts": [
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/.bash_history,target=/home/vscode/.bash_history,type=bind",
-    "source=/dev/bus/usb,target=/dev/bus/usb,type=bind",
+	"source=${localEnv:HOME}${localEnv:USERPROFILE}/Documents/SCAND/rosbags,target=/home/SCAND/rosbags,type=bind",
+	"source=/media/jim/Ironwolf/datasets/scand_data/images,target=/home/SCAND/images,type=bind"
 ],
 "features": {
 	"ghcr.io/devcontainers/features/conda:1": {
-    "version": "latest"
-  },
+		"version": "latest"
+	},
 	"ghcr.io/devcontainers/features/git-lfs:1": {
-    "autoPull": true,
-    "version": "latest"
-  },
-  "ghcr.io/devcontainers/features/python:1": {
-    "installTools": true,
-    "version": "latest"
-  },
-  "ghcr.io/devcontainers/features/nvidia-cuda:2": {
-    "installCudnn": true,
-    "installToolkit": true,
-    "cudaVersion": "13.0",
-    "cudnnVersion": "automatic"
-  }
+		"autoPull": true,
+		"version": "latest"
+	},
+	"ghcr.io/devcontainers/features/nvidia-cuda:2": {
+		"installCudnn": true,
+		"installToolkit": true,
+		"cudaVersion": "12.5",
+		"cudnnVersion": "automatic"
+	},
+	"ghcr.io/devcontainers/features/python:1": {
+		"installTools": true,
+		"version": "3.10"
+	}
 }
 }
