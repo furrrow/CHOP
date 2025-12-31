@@ -8,7 +8,7 @@ batch_size: 1024
 epochs: 100
 gpu_ids: [0, 1, 2, 3]
 num_workers: 8
-lr: 1e-4
+lr: 5e-5
 optimizer: adamw
 clipping: False
 max_norm: 1.
@@ -65,6 +65,8 @@ load_run: True
 load_pretrained: True
 pretrained_model_path: ./weights/nomad.pth
 load_opt_sched: False
+chop_finetuned_path: ./weights/chop_nomad.pth
+
 
 datasets:
   scand_a:

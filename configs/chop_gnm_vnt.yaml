@@ -51,6 +51,7 @@ load_run: True
 load_pretrained: True
 pretrained_model_path: ./weights/gnm.pth
 load_opt_sched: False
+chop_finetuned_path: ./weights/chop_gnm.pth
 
 datasets:
   scand_a:

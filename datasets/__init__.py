@@ -1,3 +1,4 @@
-from .omnivla_chop_dataset import OmniVLAChopDataset, make_dataloader
+from .omnivla_chop_dataset import OmniVLAChopDataset
+from .visualnav_transformer_dataset import VisualNavTformerCHOPDataset
 
-__all__ = ["OmniVLAChopDataset", "make_dataloader"]
+__all__ = ["OmniVLAChopDataset", "VisualNavTformerCHOPDataset"]
