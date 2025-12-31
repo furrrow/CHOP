@@ -14,6 +14,7 @@ class BaseEvaluator():
         self.bag_name = None
         self.frames = None
         self.model = model
+        self.all_evals_from_data = False
 
     def _open_output_files(self):
         output_dir = os.path.join(self.output_path, self._eval_name)
@@ -43,7 +44,7 @@ class BaseEvaluator():
         with open(log_file_path, "a") as f:
             json_record = {
                 "bag": bag_stem,
-                "frame_count": len(self.frames),
+                "frame_count": len(evaluations),
                 "data": evaluations,
                 "mean": mean,
                 "std": std,

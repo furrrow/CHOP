@@ -37,6 +37,7 @@ from PIL import Image as PILImage
 from evaluation.proximity_evaluate import ProximityEvaluator
 from evaluation.goal_distance_evaluate import GoalDistanceEvaluator
 from evaluation.alignment_evaluate import AlignmentEvaluator
+from evaluation.near_miss_evaluate import NearMissEvaluator
 
 class InferenceConfigOriginal:
     resume: bool = True
@@ -150,6 +151,12 @@ class EvalRunner:
         self.config = config
         self.context_frames = self.config.get("context_size", 0)
         self.image_root = Path("/media/beast-gamma/Media/Datasets/SCAND/images/")
+
+        self.all_evals_from_data = True
+        for eval in self.evaluators:
+            if not eval.all_evals_from_data:
+                self.all_evals_from_data = False
+                break
 
     def _get_timestamps_from_expert_annotations(self):
         self.pref_file = os.path.join(self.pref_annotations_path, f"{Path(self.bag_name).stem}.json")
@@ -496,19 +503,22 @@ class EvalRunner:
             if test_train_bags.get(self.bag_name, "train") == "train" or not pref_dict.get(self.bag_name, False) or self.bag_name in processed:
                 print(f"[INFO] Skipping training bag: {self.bag_name}")
                 continue
-            self.preprocess_bag(bp)
+
+            if not self.all_evals_from_data:
+                self.preprocess_bag(bp)
 
             for evaluator in self.evaluators:
                 evaluator.run(self.bag_name, self.frames)
 
             # Persist cached paths for downstream metrics.
-            self._save_paths_json(self.bag_name)
+            if not self.all_evals_from_data:
+                self._save_paths_json(self.bag_name)
 
 if __name__ == "__main__":
 
     output_paths = "./outputs/evals/"
     inference_out = "./outputs/trajectories/"
-    model_name = "vint"
+    model_name = "nomad"
     dataset_split = "./data/annotations/test-train-split.json"
     pref_annotations_path = "./data/annotations/preferences"
     bag_dir = "/media/beast-gamma/Media/Datasets/SCAND/rosbags/"
@@ -516,8 +526,10 @@ if __name__ == "__main__":
     proximity_evaluator = ProximityEvaluator(output_path=output_paths, scand=True, model=model_name)
     goal_distance_evaluator = GoalDistanceEvaluator(output_path=output_paths, scand=True, model=model_name)
     alignment_evaluator = AlignmentEvaluator(output_path=output_paths, scand=True, model=model_name)
+    near_miss_evaluator = NearMissEvaluator(output_path=output_paths, scand=True, model=model_name)
 
-    evaluators = [proximity_evaluator, goal_distance_evaluator, alignment_evaluator]
+    # evaluators = [proximity_evaluator, goal_distance_evaluator, alignment_evaluator]
+    evaluators = [near_miss_evaluator]
 
     # processed = ["A_Jackal_Fountain_Library_Fri_Oct_29_9", "A_Jackal_REC_Abandon_Sat_Nov_13_92", "A_Spot_AHG_AHG_Mon_Nov_8_27"]
     # processed = ["A_Jackal_Fountain_Library_Fri_Oct_29_9", "A_Jackal_REC_Abandon_Sat_Nov_13_92", 
