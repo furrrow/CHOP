@@ -1,0 +1,38 @@
+########### Config for Omnivla ###########
+omnivla:
+  # parameters for training dataset
+  image_size: [224, 224] # width, height
+  context_type: temporal
+  normalize: True
+  learn_angle: True
+  num_workers: 10
+
+########### Config for ViNT ###########
+vint:
+  # parameters for training dataset
+  image_size: [224, 224] # width, height
+  context_type: temporal
+  normalize: True
+  learn_angle: True
+  num_workers: 10
+  context_time: 0.3
+
+########### Config for GNM ###########
+gnm:
+  # parameters for training dataset
+  image_size: [224, 224] # width, height
+  context_type: temporal
+  normalize: True
+  learn_angle: True
+  num_workers: 10
+  context_time: 0.3
+
+########### Config for NoMAD ###########
+nomad:
+  # parameters for training dataset
+  image_size: [224, 224] # width, height
+  context_type: temporal
+  normalize: True
+  learn_angle: True
+  num_workers: 10
+  context_time: 0.3
