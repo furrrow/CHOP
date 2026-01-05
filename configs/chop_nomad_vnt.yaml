@@ -4,11 +4,11 @@ run_name: nomad
 # training setup
 use_wandb: True # set to false if you don't want to log to wandb
 train: True
-batch_size: 256
+batch_size: 1024
 epochs: 100
-gpu_ids: [0]
-num_workers: 12
-lr: 1e-4
+gpu_ids: [0, 1, 2, 3]
+num_workers: 8
+lr: 5e-5
 optimizer: adamw
 clipping: False
 max_norm: 1.

@@ -1,10 +1,5 @@
-from dataclasses import dataclass
-from pathlib import Path
-
 import numpy as np
-from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
-import rosbag
 
 from evaluation.base_evaluator import BaseEvaluator
 
@@ -22,6 +17,7 @@ class GoalDistanceEvaluator(BaseEvaluator):
             self._eval_name += "_scand"
 
         self._open_output_files()
+        self.all_evals_from_data = False
 
     def analyze_bag(self, finetuned: bool = True):
         print(f"[INFO] Analyzing goal distance for {self.bag_name}")

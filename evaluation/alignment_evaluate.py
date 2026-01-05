@@ -12,6 +12,7 @@ class AlignmentEvaluator(BaseEvaluator):
             self._eval_name += "_scand"
 
         self._open_output_files()
+        self.all_evals_from_data = False
 
     def analyze_bag(self, finetuned: bool = True):
         print(f"[INFO] Analyzing path alignment for {self.bag_name}")
