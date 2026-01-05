@@ -20,23 +20,12 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 # Numerical + CV libraries
 import math
 import numpy as np
-from numpy.lib.stride_tricks import as_strided
-
-# Visualization Libraries
-import cv2
-from cv_bridge import CvBridge, CvBridgeError
-import matplotlib
-matplotlib.use('Agg')
-from matplotlib import pyplot as plt
-from matplotlib.path import Path
-from PIL import Image
 
 # Message types
-from std_msgs.msg import Float32, Float32MultiArray
-from geometry_msgs.msg import Twist, PointStamped
-from nav_msgs.msg import OccupancyGrid, Odometry
-from sensor_msgs.msg import LaserScan, CompressedImage
-from sensor_msgs.msg import Image as sensorImage
+from std_msgs.msg import Empty
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
+from sensor_msgs.msg import LaserScan
 from scipy.spatial.transform import Rotation as R
 
 from typing import List, Optional, Tuple
@@ -45,19 +34,20 @@ class LaserScanConfig:
     max_angle: float = 180.0        # degrees
     min_angle: float = -180.0       # degrees
     angle_increment: float = 0.5    # degrees
-    range_min: float = 0.12         # meters
-    range_max: float = 3.5          # meters
+    range_min: float = 0.25         # meters
+    range_max: float = 4.0          # meters
+    scan_skip: int = 1              # idxs
 
 class RobotConfig():
 
-    max_speed = 0.7        # [m/s]
+    max_speed = 1.0        # [m/s]
     min_speed = 0.0        # [m/s]
-    max_yawrate = 0.7      # [rad/s]
+    max_yawrate = 0.175    # [rad/s]
     max_accel = 1          # [m/s^2]
     max_dyawrate = 3.2     # [rad/s^2]
 
     v_reso = 0.05          # [m/s]
-    yawrate_reso = 0.025   # [rad/s]
+    yawrate_reso = 0.02    # [rad/s]
 
     dt = 0.025             # [s]
     predict_time = 0.5     # [s]
@@ -71,79 +61,47 @@ class RobotConfig():
 class Obstacles():
     def __init__(self):
         # Set of coordinates of obstacles in view
-        self.obst = set()
+        self.obst = np.zeros((0,2), dtype=float)
         self.collision_status = False
+        self.laserscan_config = LaserScanConfig()
+        self.obs_resolution = 0.05
+        self.norm_factor = 1 / self.obs_resolution
 
-    # Custom range implementation to loop over LaserScan degrees with
-    # a step and include the final degree
-    def myRange(self,start,end,step):
-        i = start
-        while i < end:
-            yield i
-            i += step
-        yield end
-
-
-    # Callback for LaserScan
     def assignObs(self, msg, config):
+        """
+        Vectorized obstacle extraction from LaserScan.
+        Assumes config has x, y, th fields for the robot pose in world frame.
+        """
+        ranges = np.asarray(msg.ranges, dtype=float)
+        deg = ranges.shape[0]
+        self.obst = np.zeros((0,2), dtype=float)
+        if deg == 0:
+            return
 
-        deg = len(msg.ranges)   # Number of degrees - varies in Sim vs real world
-        self.obst = set()   # reset the obstacle set to only keep visible objects
-        
-        maxAngle = 360
-        scanSkip = 1
-        anglePerSlot = (float(maxAngle) / deg) * scanSkip
-        angleCount = 0
-        angleValuePos = 0
-        angleValueNeg = 0
-        self.collision_status = False
-        for angle in self.myRange(0,deg-1,scanSkip):
-            distance = msg.ranges[angle]
+        angle_per_slot = 2.0 * math.pi / deg
+        angles = (np.arange(deg) - deg / 2.0) * angle_per_slot  # map to [-pi, pi]
 
-            if (distance < 0.05) and (not self.collision_status):
-                self.collision_status = True
-                # print("Collided")
-                # reset_robot(reached)
+        valid = np.isfinite(ranges) & (ranges < self.laserscan_config.range_max)
+        if not valid.any():
+            self.collision_status = False
+            return
 
-            if(angleCount < (deg / (2*scanSkip))):
-                # print("In negative angle zone")
-                angleValueNeg += (anglePerSlot)
-                scanTheta = (angleValueNeg - 180) * math.pi/180.0
+        dist_valid = ranges[valid]
+        self.collision_status = bool((dist_valid < self.laserscan_config.range_min).any())
 
+        th = getattr(config, "th", 0.0)
+        x0 = getattr(config, "x", 0.0)
+        y0 = getattr(config, "y", 0.0)
 
-            elif(angleCount>(deg / (2*scanSkip))):
-                # print("In positive angle zone")
-                angleValuePos += anglePerSlot
-                scanTheta = angleValuePos * math.pi/180.0
-            # only record obstacles that are within 4 metres away
+        obj_theta = angles[valid] + th
+        obs_x = x0 + dist_valid * np.cos(obj_theta)
+        obs_y = y0 + dist_valid * np.sin(obj_theta)
 
-            else:
-                scanTheta = 0
-
-            angleCount += 1
-
-            if (distance < 4):
-                # angle of obstacle wrt robot
-                # angle/2.844 is to normalise the 512 degrees in real world
-                # for simulation in Gazebo, use angle/4.0
-                # laser from 0 to 180
-
-                objTheta =  scanTheta + config.th
-
-                # round coords to nearest 0.125m
-                obsX = round((config.x + (distance * math.cos(abs(objTheta))))*8)/8
-                # determine direction of Y coord
-                
-                if (objTheta < 0):
-                    obsY = round((config.y - (distance * math.sin(abs(objTheta))))*8)/8
-                else:
-                    obsY = round((config.y + (distance * math.sin(abs(objTheta))))*8)/8
-
-
-                # add coords to set so as to only take unique obstacles
-                self.obst.add((obsX,obsY))
-        # print(self.obst)
-                
+        obs = np.stack([np.round(obs_x * self.norm_factor) / self.norm_factor,
+                        np.round(obs_y * self.norm_factor) / self.norm_factor], axis=1)
+        obs_unique = np.unique(obs, axis=0)
+        self.obst = obs_unique
+ 
 class Planner(Node):
     def __init__(self):
         super().__init__('dwa_costmap')
@@ -157,17 +115,19 @@ class Planner(Node):
         self.config = RobotConfig()
         self.obs = Obstacles()
         
-        self.sub_odom = self.create_subscription(Odometry, '/odom_lidar', self.config.assignOdomCoords,self.qos_profile)        # self.sub_laser = self.create_subscription(LaserScan, '/j100_0707/sensors/lidar3d_0/scan', lambda msg: self.obs.assignObs(msg, self.config), self.qos_profile)
-        self.sub_goal = self.create_subscription(Twist, '/target/position', self.config.target_callback, self.qos_profile)
+        self.sub_odom = self.create_subscription(Odometry, '/odom_lidar', self.on_odom, self.qos_profile)        # self.sub_laser = self.create_subscription(LaserScan, '/j100_0707/sensors/lidar3d_0/scan', lambda msg: self.obs.assignObs(msg, self.config), self.qos_profile)
+        self.sub_goal = self.create_subscription(Twist, '/target/position', self.on_goal_cartesian_rf, self.qos_profile)
+        # self.sub_laser = self.create_subscription(LaserScan, '/scan', lambda msg: self.obs.assignObs(msg, self.config), self.qos_profile)
 
         choice = input("Publish? 1 or 0")
         
         if(int(choice) == 1):
-            self.pub = self.create_publisher(Twist, '/cmd_vel', 10)
+            self.ctrl_pub = self.create_publisher(Twist, '/cmd_vel', 10)
             print("Publishing to cmd_vel")
         else:
-            self.pub = self.create_publisher(Twist, "/dont_publish", 1)
+            self.ctrl_pub = self.create_publisher(Twist, "/dont_publish", 1)
             print("Not publishing!")
+        self.req_goal_pub = self.create_publisher(Empty, "/req_goal", 10)
 
         self.x = None
         self.y = None
@@ -183,6 +143,10 @@ class Planner(Node):
 
         self.odom_assigned = False
 
+        self.goalX = None
+        self.goalY = None
+        self._goal_req_sent = False
+
     # ------------ ROS callbacks ---------------
 
     def on_goal_cartesian_rf(self, msg):
@@ -191,12 +155,13 @@ class Planner(Node):
             msg.linear.x: x
             msg.linear.y: y
         """
-        self.goalX = msg.linear.x
-        self.goalY = msg.linear.y
+        gX = msg.linear.x
+        gY = msg.linear.y
 
         if self.odom_assigned:
-            self.goalX =  self.x + self.goalX*np.cos(self.yaw) - self.goalY*np.sin(self.yaw)
-            self.goalY = self.y + self.goalX*np.sin(self.yaw) + self.goalY*np.cos(self.yaw)
+            self.goalX =  self.x + gX*np.cos(self.yaw) - gY*np.sin(self.yaw)
+            self.goalY = self.y + gX*np.sin(self.yaw) + gY*np.cos(self.yaw)
+            self._goal_req_sent = False
 
     def on_goal_cartesian_wf(self, msg):
         """
@@ -206,6 +171,7 @@ class Planner(Node):
         """
         self.goalX = msg.linear.x
         self.goalY = msg.linear.y
+        self._goal_req_sent = False
 
     def on_goal_spherical_rf(self, msg):
         """
@@ -223,6 +189,7 @@ class Planner(Node):
         if self.odom_assigned:
             self.goalX =  self.x + goalX_rob*np.cos(self.yaw) - goalY_rob*np.sin(self.yaw)
             self.goalY = self.y + goalX_rob*np.sin(self.yaw) + goalY_rob*np.cos(self.yaw)
+            self._goal_req_sent = False
     
     def on_goal_spherical_wf(self, msg):
         """
@@ -236,6 +203,7 @@ class Planner(Node):
         # Goal wrt robot frame
         self.goalX = radius * np.cos(theta)
         self.goalY = radius * np.sin(theta)
+        self._goal_req_sent = False
 
     # Callback for Odometry
     def on_odom(self, msg):
@@ -247,10 +215,17 @@ class Planner(Node):
         self.yaw = yaw
 
         self.v_x = msg.twist.twist.linear.x
-        self.w_z = msg.twist.twist.angular.z 
+        self.w_z = msg.twist.twist.angular.z
+
+        self.X = np.array([self.x, self.y, self.yaw, self.v_x, self.w_z])
+        self.odom_assigned = True
 
     def atGoal(self):
-        if np.linalg.norm(self.X[:2] - np.array([self.goalX, self.goalY])) <= self.config.robot_radius:
+        if not self.odom_assigned:
+            return False
+        elif self.goalX is None or self.goalY is None:
+            return False
+        elif np.linalg.norm(self.X[:2] - np.array([self.goalX, self.goalY])) <= self.config.robot_radius:
             return True
         return False
 
@@ -260,10 +235,10 @@ class Planner(Node):
             -self.config.max_yawrate, self.config.max_yawrate]
 
         # Dynamic window from motion model
-        Vd = [self.x[3] - self.config.max_accel * self.config.dt,
-            self.x[3] + self.config.max_accel * self.config.dt,
-            self.x[4] - self.config.max_dyawrate * self.config.dt,
-            self.x[4] + self.config.max_dyawrate * self.config.dt]
+        Vd = [self.X[3] - self.config.max_accel * self.config.dt,
+            self.X[3] + self.config.max_accel * self.config.dt,
+            self.X[4] - self.config.max_dyawrate * self.config.dt,
+            self.X[4] + self.config.max_dyawrate * self.config.dt]
 
         #  [vmin, vmax, yawrate min, yawrate max]
         dw = [max(Vs[0], Vd[0]), min(Vs[1], Vd[1]),
@@ -304,136 +279,95 @@ class Planner(Node):
         return trajectory
 
     # Calculate goal cost via Pythagorean distance to robot
-    def calc_to_goal_cost(trajs, config):
-        costs = np.linalg.norm(trajs[:, -1, 0:2] - np.array([config.goalX, config.goalY]), axis=1)
+    def calc_to_goal_cost(self, trajs):
+        costs = np.linalg.norm(trajs[:, -1, 0:2] - np.array([self.goalX, self.goalY]), axis=1)
+        return costs
+    
+
+    def calc_obstacle_cost(self, trajs: np.ndarray, skip_n: int = 2) -> np.ndarray:
+        """
+        obstacle cost over a batch of trajectories.
+        trajs: (M, T, 5) array of trajectories.
+        Returns cost per trajectory: inf on collision, else 1/min_distance.
+        """
+        if self.obs is None or len(self.obs.obst) == 0:
+            return np.zeros(trajs.shape[0], dtype=float)
+
+        obs = np.array(self.obs.obst, dtype=float)        # (N,2)
+        traj_pts = trajs[:, ::skip_n, :2]           # (M, T/skip, 2)
+
+        diff = traj_pts[:, :, None, :] - obs[None, None, :, :]  # (M, T, N, 2)
+        dists = np.linalg.norm(diff, axis=-1)                  # (M, T, N)
+
+        min_d = dists.min(axis=(1, 2))
+        collided = min_d <= self.config.robot_radius
+
+        costs = np.empty(trajs.shape[0], dtype=float)
+        costs[collided] = np.inf
+        costs[~collided] = 1.0 / np.maximum(min_d[~collided], 1e-6)
         return costs
 
     def calc_final_input(self, dw: list[float], ob: Optional[Obstacles] = None):
 
-        self.config.min_u = self.u
-        self.config.min_u[0] = 0.0
-
         trajs = []
+        action_pairs = []
         # evaluate all trajectory with sampled input in dynamic window
         for v in np.arange(dw[0], dw[1] + self.config.v_reso/2, self.config.v_reso):
             for w in np.arange(dw[2], dw[3] + self.config.yawrate_reso/2, self.config.yawrate_reso):
                 
                 traj = self.compute_trajectory(v, w)
                 trajs.append(traj)
+                action_pairs.append((v, w))
 
         trajs = np.array(trajs)
         # calc costs with weighted gains
         to_goal_costs = self.config.to_goal_cost_gain * self.calc_to_goal_cost(trajs)
         speed_costs = self.config.speed_cost_gain * np.abs(self.config.max_speed - trajs[:, -1, 3]) 
-        ob_costs = self.config.obs_cost_gain * self.calc_obstacle_cost(trajs, ob, self.config)
-
-        final_cost = to_goal_costs + ob_costs + speed_costs
         
-        return 
+        # ob_costs = self.config.obs_cost_gain * self.calc_obstacle_cost(trajs, ob, self.config)
+        # final_cost = to_goal_costs + ob_costs + speed_costs
+        final_cost = to_goal_costs + speed_costs
+
+        if final_cost.size == 0:
+            return np.array([0.0, 0.0])
+        elif final_cost.min() == np.inf:
+            return np.array([0.0, 0.0])
+        
+        return np.array(action_pairs[np.argmin(final_cost)])
 
     def dwa_control(self, ob: Optional[Obstacles] = None):
         dw = self.calc_dynamic_window()
-        u = self.calc_final_input(dw, ob)   
-        return u
+        U = self.calc_final_input(dw, ob)   
+        return U
 
     def main_loop(self):
+        if self.odom_assigned:
+            if not self.atGoal():
 
-        if not self.atGoal():
-
-            self.u = self.dwa_control()
-            self.x[0] = self.config.x
-            self.x[1] = self.config.y
-            self.x[2] = self.config.th
-            self.x[3] = self.u[0]
-            self.x[4] = self.u[1]
-            self.speed.linear.x = self.x[3]
-            self.speed.angular.z = self.x[4]
-        else:
-            self.get_logger().info("Goal reached!")
-            self.speed.linear.x = 0.0
-            self.speed.angular.z = 0.0
-            self.x = np.array([self.config.x, self.config.y, self.config.th, 0.0, 0.0])
-        # print("Speed values :" + str(self.speed))
-        self.pub.publish(self.speed)
+                self.U = self.dwa_control()
+                self.X[0] = self.x
+                self.X[1] = self.y
+                self.X[2] = self.yaw
+                self.X[3] = self.U[0]
+                self.X[4] = self.U[1]
+                self.speed.linear.x = self.X[3]
+                self.speed.angular.z = self.X[4]
+            else:
+                self.get_logger().info("Goal reached!")
+                if not self._goal_req_sent:
+                    self.req_goal_pub.publish(Empty())
+                    self._goal_req_sent = True
+                self.speed.linear.x = 0.0
+                self.speed.angular.z = 0.0
+                self.X = np.array([self.x, self.y, self.yaw, 0.0, 0.0])
+            # print("Speed values :" + str(self.speed))
+            self.ctrl_pub.publish(self.speed)
 
     def run(self):
         while rclpy.ok():
             rclpy.spin_once(self, timeout_sec=0)  # Process incoming messages
             self.main_loop()
     
-    # def transform_traj_to_costmap(config, traj):
-    #     # Get trajectory points wrt robot
-    #     traj_odom = traj[:,0:2]
-    #     traj_rob_x = (traj_odom[:, 0] - config.x)*math.cos(config.th) + (traj_odom[:, 1] - config.y)*math.sin(config.th)
-    #     traj_rob_y = -(traj_odom[:, 0] - config.x)*math.sin(config.th) + (traj_odom[:, 1] - config.y)*math.cos(config.th)
-    #     traj_norm_x = (traj_rob_x/config.costmap_resolution).astype(int)
-    #     traj_norm_y = (traj_rob_y/config.costmap_resolution).astype(int)
-
-    #     # Get traj wrt costmap
-    #     traj_cm_col = config.costmap_shape[0]/2 - traj_norm_y
-    #     traj_cm_row = config.costmap_shape[0]/2 - traj_norm_x
-
-    #     return traj_cm_col, traj_cm_row
-
-# Calculate obstacle cost inf: collision, 0:free
-def calc_obstacle_cost(traj, ob, config):
-    skip_n = 2
-    minr = float("inf")
-
-    # Loop through every obstacle in set and calc Pythagorean distance
-    # Use robot radius to determine if collision
-    for ii in range(0, len(traj[:, 1]), skip_n):
-        for i in ob.copy():
-            ox = i[0]
-            oy = i[1]
-            dx = traj[ii, 0] - ox
-            dy = traj[ii, 1] - oy
-
-            r = math.sqrt(dx**2 + dy**2)
-
-            if r <= config.robot_radius:
-                return float("Inf")  # collision
-
-            if minr >= r:
-                minr = r
-
-    return 1.0 / minr
-
-def calc_obstacle_cost_batched(trajs: np.ndarray, ob: Obstacles, config, skip_n: int = 2) -> np.ndarray:
-    """
-    Vectorized obstacle cost over a batch of trajectories.
-    trajs: (M, T, 5) array of trajectories.
-    Returns cost per trajectory: inf on collision, else 1/min_distance.
-    """
-    if ob is None or not ob.obst:
-        return np.zeros(trajs.shape[0], dtype=float)
-
-    obs = np.array(list(ob.obst), dtype=float)  # (N,2)
-    traj_pts = trajs[:, ::skip_n, :2]           # (M, T/skip, 2)
-
-    diff = traj_pts[:, :, None, :] - obs[None, None, :, :]  # (M, T, N, 2)
-    dists = np.linalg.norm(diff, axis=-1)                  # (M, T, N)
-
-    min_d = dists.min(axis=(1, 2))
-    collided = dists.min(axis=2).min(axis=1) <= config.robot_radius
-
-    costs = np.empty(trajs.shape[0], dtype=float)
-    costs[collided] = np.inf
-    costs[~collided] = 1.0 / np.maximum(min_d[~collided], 1e-6)
-    return costs
-
-def odom_to_robot(config, x_odom, y_odom):
-    
-    # print(x_odom.shape[0])
-    x_rob_odom_list = np.asarray([config.x for i in range(x_odom.shape[0])])
-    y_rob_odom_list = np.asarray([config.y for i in range(y_odom.shape[0])])
-
-    x_rob = (x_odom - x_rob_odom_list)*math.cos(config.th) + (y_odom - y_rob_odom_list)*math.sin(config.th)
-    y_rob = -(x_odom - x_rob_odom_list)*math.sin(config.th) + (y_odom - y_rob_odom_list)*math.cos(config.th)
-    # print("Trajectory end-points wrt robot:", x_rob, y_rob)
-
-    return x_rob, y_rob
-
 if __name__ == '__main__':
     
     rclpy.init()

@@ -13,46 +13,7 @@ from nav_msgs.msg import Odometry, Path
 from geometry_msgs.msg import PoseStamped
 
 from scipy.spatial.transform import Rotation as R
-
-def rot2d(theta: float) -> Tuple[float, float]:
-    return math.cos(theta), math.sin(theta)
-
-
-def compose_T(pose_wb: Tuple[float, float, float], x_b: float, y_b: float) -> Tuple[float, float]:
-    """World from base: p_w = T^w_b * p_b."""
-    x_wb, y_wb, yaw = pose_wb
-    c, s = rot2d(yaw)
-    x_w = x_wb + c * x_b - s * y_b
-    y_w = y_wb + s * x_b + c * y_b
-    return x_w, y_w
-
-
-def apply_inv_T(pose_wb: Tuple[float, float, float], x_w: float, y_w: float) -> Tuple[float, float]:
-    """Base from world: p_b = (T^w_b)^-1 * p_w."""
-    x_wb, y_wb, yaw = pose_wb
-    dx = x_w - x_wb
-    dy = y_w - y_wb
-    c, s = rot2d(yaw)
-    x_b =  c * dx + s * dy
-    y_b = -s * dx + c * dy
-    return x_b, y_b
-
-
-def start_to_current(T_w_start: np.ndarray, T_w_cur: np.ndarray, points_start: np.ndarray) -> np.ndarray:
-    """
-    points_start: (N,2) in START frame
-    returns:      (N,2) in CURRENT frame
-    p^c = (T^w_c)^-1 * T^w_s * p^s
-    """
-    pts = np.asarray(points_start, dtype=np.float64)
-    N = pts.shape[0]
-    pts_h = np.ones((3, N), dtype=np.float64)
-    pts_h[0, :] = pts[:, 0]
-    pts_h[1, :] = pts[:, 1]
-
-    T_c_s = np.linalg.inv(T_w_cur) @ T_w_start   # 3x3
-    pts_c = (T_c_s @ pts_h)[:2, :].T             # (N,2)
-    return pts_c
+from deployment.utils.transformations import start_to_current
 
 class PathManagerNode(Node):
     def __init__(self):
