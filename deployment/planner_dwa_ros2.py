@@ -225,6 +225,9 @@ class Planner(Node):
                 self._goal_req_sent = True
             return False
         elif np.linalg.norm(self.X[:2] - np.array([self.goalX, self.goalY])) <= self.config.robot_radius:
+            if not self._goal_req_sent:
+                self.req_goal_pub.publish(Empty())
+                self._goal_req_sent = True
             return True
         return False
 
@@ -340,7 +343,7 @@ class Planner(Node):
         return U
 
     def main_loop(self):
-        if self.odom_assigned and self.goalX is not None and self.goalY is not None:
+        if self.odom_assigned:
             if not self.atGoal():
 
                 self.U = self.dwa_control()
