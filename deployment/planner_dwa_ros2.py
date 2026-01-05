@@ -85,7 +85,7 @@ class Obstacles():
         dist_valid = ranges[valid]
         self.collision_status = bool((dist_valid < self.laserscan_config.range_min).any())
 
-        th = getattr(config, "th", 0.0)
+        th = getattr(config, "yaw", 0.0)
         x0 = getattr(config, "x", 0.0)
         y0 = getattr(config, "y", 0.0)
 
@@ -220,6 +220,9 @@ class Planner(Node):
         if not self.odom_assigned:
             return False
         elif self.goalX is None or self.goalY is None:
+            if not self._goal_req_sent:
+                self.req_goal_pub.publish(Empty())
+                self._goal_req_sent = True
             return False
         elif np.linalg.norm(self.X[:2] - np.array([self.goalX, self.goalY])) <= self.config.robot_radius:
             return True
@@ -286,7 +289,7 @@ class Planner(Node):
         trajs: (M, T, 5) array of trajectories.
         Returns cost per trajectory: inf on collision, else 1/min_distance.
         """
-        if self.obs is None or len(self.obs.obst) == 0:
+        if self.obs is None or self.obs.obst.size == 0:
             return np.zeros(trajs.shape[0], dtype=float)
 
         obs = np.array(self.obs.obst, dtype=float)        # (N,2)
@@ -337,7 +340,7 @@ class Planner(Node):
         return U
 
     def main_loop(self):
-        if self.odom_assigned:
+        if self.odom_assigned and self.goalX is not None and self.goalY is not None:
             if not self.atGoal():
 
                 self.U = self.dwa_control()
@@ -350,9 +353,6 @@ class Planner(Node):
                 self.speed.angular.z = self.X[4]
             else:
                 self.get_logger().info("Goal reached!")
-                if not self._goal_req_sent:
-                    self.req_goal_pub.publish(Empty())
-                    self._goal_req_sent = True
                 self.speed.linear.x = 0.0
                 self.speed.angular.z = 0.0
                 self.X = np.array([self.x, self.y, self.yaw, 0.0, 0.0])
