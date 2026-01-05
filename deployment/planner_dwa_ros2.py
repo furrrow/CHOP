@@ -216,6 +216,8 @@ class Planner(Node):
         self.X[0] = self.x
         self.X[1] = self.y
         self.X[2] = self.yaw
+        self.X[3] = self.v_x
+        self.X[4] = self.w_z
 
         self.odom_assigned = True
 
