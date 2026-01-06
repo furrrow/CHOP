@@ -254,8 +254,6 @@ class ModelNode(Node):
 
             # ---- Run inference outside lock ----
             try:
-                # For now, keep calling your existing function signature.
-                # You can later modify run_inference to use ctx_imgs if you want.
                 path_xy = self.run_inference(model=model, cur_frame=cur, goal_frame=goal, context_frames=ctx_imgs, noise_scheduler=noise_scheduler)
             except Exception as e:
                 self.get_logger().error(f"Inference failed: {repr(e)}")

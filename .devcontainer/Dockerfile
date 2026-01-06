@@ -1,39 +1,42 @@
-FROM osrf/ros:foxy-desktop
+FROM osrf/ros:humble-desktop
 
-# Add ubuntu user with same UID and GID as your host system, if it doesn't already exist
-# Since Ubuntu 24.04, a non-root user is created by default with the name vscode and UID=1000
-ARG USERNAME=ubuntu
-ARG USER_UID=1000
-ARG USER_GID=$USER_UID
-RUN if ! id -u $USER_UID >/dev/null 2>&1; then \
-        groupadd --gid $USER_GID $USERNAME && \
-        useradd -s /bin/bash --uid $USER_UID --gid $USER_GID -m $USERNAME; \
-    fi
-# Add sudo support for the non-root user
-RUN apt-get update && \
-    apt-get install -y sudo && \
-    echo "$USERNAME ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME && \
-    chmod 0440 /etc/sudoers.d/$USERNAME
+# Basic tools
+RUN apt-get update && apt-get install -y \
+    wget git build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# Switch from root to user
-USER $USERNAME
+# Install Miniconda
+ENV CONDA_DIR=/opt/miniconda
+RUN wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
+    bash /tmp/miniconda.sh -b -p $CONDA_DIR && \
+    rm /tmp/miniconda.sh
 
-# Add user to video group to allow access to webcam
-RUN sudo usermod --append --groups video $USERNAME
+ENV PATH=$CONDA_DIR/bin:$PATH
 
-# Update all packages
-RUN sudo apt update && sudo apt upgrade -y
+# Update conda itself (optional but nice)
+RUN conda update -n base -c defaults -y conda
 
-# Install Git
-RUN sudo apt install -y git
+# Create your project environment (adjust Python version if you want)
+RUN conda create -y -n myproj python=3.10 && \
+    conda clean -afy
 
-# Rosdep update
-RUN rosdep update
+# Make that env the default
+ENV CONDA_DEFAULT_ENV=myproj
+ENV PATH=$CONDA_DIR/envs/$CONDA_DEFAULT_ENV/bin:$PATH
 
-# Source the ROS setup file
-RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc
+# Working directory where you'll mount your repo
+WORKDIR /workspace
 
-################################
-## ADD ANY CUSTOM SETUP BELOW ##
-################################
-RUN sudo apt install -y usbutils
+# Entry point: source ROS, activate Conda env, fix PYTHONPATH for ROS Python
+# NOTE: the python3.10 in the path below matches Humble's default Python.
+# If you switch ROS distro or base image, you may need to adjust that suffix.
+RUN echo '#!/bin/bash'                             >  /ros_conda_entrypoint.sh && \
+    echo 'set -e'                                  >> /ros_conda_entrypoint.sh && \
+    echo 'source /opt/ros/humble/setup.bash'       >> /ros_conda_entrypoint.sh && \
+    echo 'source "'"$CONDA_DIR"'/bin/activate" "'"$CONDA_DEFAULT_ENV"'"' >> /ros_conda_entrypoint.sh && \
+    echo 'export PYTHONPATH=/usr/lib/python3/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:$PYTHONPATH' >> /ros_conda_entrypoint.sh && \
+    echo 'exec "$@"'                               >> /ros_conda_entrypoint.sh && \
+    chmod +x /ros_conda_entrypoint.sh
+
+ENTRYPOINT ["/ros_conda_entrypoint.sh"]
+CMD ["bash"]
