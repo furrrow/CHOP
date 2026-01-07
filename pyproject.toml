@@ -65,7 +65,8 @@ dependencies = [
     "efficientnet_pytorch",
     "av",
     "opencv-python==4.6.0.66", 
-    "prettytable"
+    "prettytable",
+    "numpy"
 ]
 
 [tool.setuptools]

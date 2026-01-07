@@ -141,6 +141,7 @@ class ModelNode(Node):
         )
 
         self.context_frames = [ContextFrame(image=None) for _ in range(self.config.get("num_context_frames", 0))]
+        self.goal_img_needed = self.config.get("need_goal_img", True)
 
     def _to_path_msg(self, path_xy: np.ndarray) -> Path:
         msg = Path()
@@ -275,8 +276,8 @@ class ModelNode(Node):
             self._cv.notify()
     
     def _ready_to_infer_locked(self) -> bool:
-        # Minimum safe readiness: current+goal images must exist.
-        if not (self._have_cur_img and self._have_goal_img):
+        # Minimum safe readiness: current+goal images must exist (if goal img needed).
+        if not (self._have_cur_img and self.goal_img_needed and self._have_goal_img):
             return False
 
         # If your model needs pose (OmniVLA), include these:

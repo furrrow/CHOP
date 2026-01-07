@@ -1,8 +1,8 @@
 FROM osrf/ros:humble-desktop
 
-# Basic tools
+# Basic tools + numpy for ROS system python
 RUN apt-get update && apt-get install -y \
-    wget git build-essential \
+    wget git build-essential python3-numpy \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Miniconda
@@ -13,15 +13,16 @@ RUN wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.s
 
 ENV PATH=$CONDA_DIR/bin:$PATH
 
-# Update conda itself (optional but nice)
-RUN conda update -n base -c defaults -y conda
+RUN conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main && \
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r && \
+    conda update -n base -c defaults -y conda
 
 # Create your project environment (adjust Python version if you want)
-RUN conda create -y -n myproj python=3.10 && \
+RUN conda create -y -n chop python=3.10 && \
     conda clean -afy
 
 # Make that env the default
-ENV CONDA_DEFAULT_ENV=myproj
+ENV CONDA_DEFAULT_ENV=chop
 ENV PATH=$CONDA_DIR/envs/$CONDA_DEFAULT_ENV/bin:$PATH
 
 # Working directory where you'll mount your repo
@@ -34,7 +35,7 @@ RUN echo '#!/bin/bash'                             >  /ros_conda_entrypoint.sh &
     echo 'set -e'                                  >> /ros_conda_entrypoint.sh && \
     echo 'source /opt/ros/humble/setup.bash'       >> /ros_conda_entrypoint.sh && \
     echo 'source "'"$CONDA_DIR"'/bin/activate" "'"$CONDA_DEFAULT_ENV"'"' >> /ros_conda_entrypoint.sh && \
-    echo 'export PYTHONPATH=/usr/lib/python3/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:$PYTHONPATH' >> /ros_conda_entrypoint.sh && \
+    echo 'export PYTHONPATH=/opt/ros/humble/lib/python3.10/site-packages:$PYTHONPATH' >> /ros_conda_entrypoint.sh && \
     echo 'exec "$@"'                               >> /ros_conda_entrypoint.sh && \
     chmod +x /ros_conda_entrypoint.sh
 

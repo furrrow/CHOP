@@ -6,6 +6,7 @@ omnivla:
   normalize: True
   learn_angle: True
   num_workers: 10
+  need_goal_img: False
 
 ########### Config for ViNT ###########
 vint:
@@ -16,6 +17,7 @@ vint:
   learn_angle: True
   num_workers: 10
   context_time: 0.3
+  need_goal_img: True
 
 ########### Config for GNM ###########
 gnm:
@@ -26,6 +28,7 @@ gnm:
   learn_angle: True
   num_workers: 10
   context_time: 0.3
+  need_goal_img: True
 
 ########### Config for NoMAD ###########
 nomad:
@@ -36,3 +39,4 @@ nomad:
   learn_angle: True
   num_workers: 10
   context_time: 0.3
+  need_goal_img: True
