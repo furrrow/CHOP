@@ -108,7 +108,8 @@ class ModelNode(Node):
         # ---------- ROS I/O ----------
         self.pub_started = self.create_publisher(Empty, "/started", 10)
         self.pub_path = self.create_publisher(Path, "/path", 10)
-        
+
+        self.bridge = CvBridge()
         self.sub_odom = self.create_subscription(Odometry, "/odom", self.on_odom, 10)
         self.sub_goal_img = self.create_subscription(CompressedImage, "/goal/image/compressed", self.on_goal_image, 10)
         self.sub_goal_pose = self.create_subscription(PoseStamped, "/goal/pose", self.on_goal_pose, 10)
@@ -116,8 +117,9 @@ class ModelNode(Node):
         self.context_timer = self.create_timer(self.context_update_period, self.update_context_from_current)
         self._worker = threading.Thread(target=self._inference_worker, daemon=True)
         self._worker.start()
+        self.get_logger().info(f"worker alive={self._worker.is_alive()}")
+        
 
-        self.bridge = CvBridge()
         self.create_subscription(CompressedImage, "/camera/image/compressed", self.on_image, 10)
 
         self.get_logger().info(
@@ -140,8 +142,10 @@ class ModelNode(Node):
             yaw=None
         )
 
-        self.context_frames = [ContextFrame(image=None) for _ in range(self.config.get("num_context_frames", 0))]
+        self.context_frames = [ContextFrame(image=None) for _ in range(self.config.get("context_size", 0) + 1)]
         self.goal_img_needed = self.config.get("need_goal_img", True)
+
+        print(f"ModelNode initialized with model {self.model_name}.")
 
     def _to_path_msg(self, path_xy: np.ndarray) -> Path:
         msg = Path()
@@ -165,7 +169,11 @@ class ModelNode(Node):
 
         if self.model_name not in config:
             raise ValueError(f"Model {self.model_name} not found in config.")
-        return config[self.model_name]
+        
+        with open(config[self.model_name]["config_path"], "r") as f:
+            config_model = yaml.safe_load(f) 
+
+        return config_model
 
     def _load_model(self, finetuned: bool = True, ):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -173,7 +181,7 @@ class ModelNode(Node):
         model = None
         noise_scheduler = None
         
-        if self.config.get("model_type") in {"vint", "gnm", "nomad"}:
+        if self.model_name in {"vint", "gnm", "nomad"}:
             ckpt_path = self.config["chop_finetuned_path"] if finetuned else self.config["pretrained_model_path"]
             sys.modules["vint_train"] = importlib.import_module("policy_sources.visualnav_transformer.train.vint_train")
             sys.modules["vint_train.models"] = importlib.import_module("policy_sources.visualnav_transformer.train.vint_train.models")
@@ -217,6 +225,8 @@ class ModelNode(Node):
 
     def _inference_worker(self):
         while True:
+            # print(f"Waiting for inference conditions: shutdown={self._shutdown}, dirty={self._dirty}, ready={self._ready_to_infer_locked()}, running={self._inference_running}")
+
             with self._cv:
                 # Wait until: shutdown OR (dirty and ready and not busy)
                 self._cv.wait_for(lambda: self._shutdown or
@@ -250,6 +260,8 @@ class ModelNode(Node):
                 # Publish /started once, when we actually start inferencing
                 if not self._started_sent:
                     self._started_sent = True
+                    self._have_cur_img = False
+                    self._have_cur_pose = False
                     self.pub_started.publish(Empty())
                     self.get_logger().info("Published /started (once).")
 
@@ -259,8 +271,9 @@ class ModelNode(Node):
             except Exception as e:
                 self.get_logger().error(f"Inference failed: {repr(e)}")
                 path_xy = None
-
+            # path_xy = self.run_inference(model=model, cur_frame=cur, goal_frame=goal, context_frames=ctx_imgs, noise_scheduler=noise_scheduler)
             if path_xy is not None:
+                self._started_sent = False
                 try:
                     self.pub_path.publish(self._to_path_msg(path_xy))
                 except Exception as e:
@@ -279,10 +292,10 @@ class ModelNode(Node):
 
         if self.model_name in {"vint", "gnm", "nomad"}:
             # current+goal images must exist.
-            if not (self._have_cur_img and self._have_goal_img and self.config.get("num_context_frames", 0) > 0 and not self._have_context):
+            if not (self._have_cur_img and self._have_goal_img and self._have_context):
                 return False
         elif self.model_name == "omnivla":
-            if not (self._have_cur_img and (self._have_goal_img or self._have_goal_pose)):
+            if not (self._have_cur_img and (self._have_goal_img or self._have_goal_pose) and self._have_cur_pose):
                 return False
         return True
     # ---------------- callbacks ----------------
@@ -309,7 +322,6 @@ class ModelNode(Node):
             self.cur_frame.yaw = yaw
             self._have_cur_pose = True
         self._trigger_inference()
-
 
     def on_goal_pose(self, msg: PoseStamped):
         p = msg.pose.position
@@ -345,10 +357,11 @@ class ModelNode(Node):
                 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        context_imgs = [f.image[:, :, ::-1] for f in context_frames]  # BGR -> RGB
-        context_pil = [PILImage.fromarray(img) for img in context_imgs]
-        goal_pil = PILImage.fromarray(goal_frame.image[:, :, ::-1])
+        
+        if self.model_name in {"vint", "gnm", "nomad"}:
+            context_imgs = [f.image[:, :, ::-1] for f in context_frames]  # BGR -> RGB
+            context_pil = [PILImage.fromarray(img) for img in context_imgs]
+            goal_pil = PILImage.fromarray(goal_frame.image[:, :, ::-1])
 
         if self.model_name in {"vint", "gnm"}:
             obs_tensor = transform_images(context_pil, self.config["image_size"])
@@ -395,7 +408,11 @@ class ModelNode(Node):
             cur_pos = cur_frame.pos
             cur_yaw = cur_frame.yaw
 
-            goal_img = PILImage.fromarray(goal_frame.image[:, :, ::-1])
+            if goal_frame.image is None:
+                base_img = np.zeros((self.config["image_size"][0], self.config["image_size"][1], 3), dtype=np.uint8)
+                goal_img = PILImage.fromarray(base_img[:, :, ::-1])
+            else:
+                goal_img = PILImage.fromarray(goal_frame.image[:, :, ::-1])
             goal_pos = goal_frame.pos
             goal_yaw = goal_frame.yaw
 

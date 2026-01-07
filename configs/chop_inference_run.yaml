@@ -1,42 +1,15 @@
 ########### Config for Omnivla ###########
 omnivla:
-  # parameters for training dataset
-  image_size: [224, 224] # width, height
-  context_type: temporal
-  normalize: True
-  learn_angle: True
-  num_workers: 10
-  need_goal_img: False
+  config_path : ./configs/chop_omnivla.yaml
 
 ########### Config for ViNT ###########
 vint:
-  # parameters for training dataset
-  image_size: [224, 224] # width, height
-  context_type: temporal
-  normalize: True
-  learn_angle: True
-  num_workers: 10
-  context_time: 0.3
-  need_goal_img: True
+  config_path : ./configs/chop_vint_vnt.yaml
 
 ########### Config for GNM ###########
 gnm:
-  # parameters for training dataset
-  image_size: [224, 224] # width, height
-  context_type: temporal
-  normalize: True
-  learn_angle: True
-  num_workers: 10
-  context_time: 0.3
-  need_goal_img: True
+  config_path : ./configs/chop_gnm_vnt.yaml
 
 ########### Config for NoMAD ###########
 nomad:
-  # parameters for training dataset
-  image_size: [224, 224] # width, height
-  context_type: temporal
-  normalize: True
-  learn_angle: True
-  num_workers: 10
-  context_time: 0.3
-  need_goal_img: True
+  config_path : ./configs/chop_nomad_vnt.yaml
