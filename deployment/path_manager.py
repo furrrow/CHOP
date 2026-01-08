@@ -27,7 +27,7 @@ class PathManagerNode(Node):
         # ---- Params ----
         self.declare_parameter("base_frame", "base_link")
         self.declare_parameter("world_frame", "odom")
-        self.declare_parameter("behind_margin", 0.0)    # pop if x < -margin
+        self.declare_parameter("behind_margin", 0.09)    # pop if x < -margin
         self.declare_parameter("reach_radius", 0.1)     # pop if dist < radius (extra robustness)
 
         self.base_frame = self.get_parameter("base_frame").value

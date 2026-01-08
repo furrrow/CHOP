@@ -74,7 +74,7 @@ class Planner(Node):
         self.norm_factor = 1 / self.obs_resolution
         
         self.sub_odom = self.create_subscription(Odometry, '/odom', self.on_odom, self.qos_profile)
-        self.sub_goal = self.create_subscription(Twist, '/target/position', self.on_goal_cartesian_rf, self.qos_profile)
+        self.sub_goal = self.create_subscription(Twist, '/next_goal', self.on_goal_cartesian_rf, self.qos_profile)
         self.sub_laser = self.create_subscription(LaserScan, '/scan', self.on_laserscan , self.qos_profile)
 
         choice = input("Publish? 1 or 0")

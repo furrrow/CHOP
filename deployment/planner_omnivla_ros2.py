@@ -10,7 +10,7 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Empty
-
+from scipy.spatial.transform import Rotation as R
 
 def clip_angle(angle: float) -> float:
     return (angle + math.pi) % (2 * math.pi) - math.pi
@@ -68,10 +68,9 @@ class PlannerOmniVLANode(Node):
     def on_odom(self, msg: Odometry):
         p = msg.pose.pose.position
         q = msg.pose.pose.orientation
-        yaw = math.atan2(
-            2.0 * (q.w * q.z + q.x * q.y),
-            1.0 - 2.0 * (q.y * q.y + q.z * q.z),
-        )
+        rot_q = msg.pose.pose.orientation
+        roll,pitch,yaw = R.from_quat([rot_q.x, rot_q.y, rot_q.z, rot_q.w]).as_euler('xyz')
+
         with self._lock:
             self._pose = (p.x, p.y, yaw)
 
