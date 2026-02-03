@@ -10,7 +10,7 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Empty
-
+from scipy.spatial.transform import Rotation as R
 
 def clip_angle(angle: float) -> float:
     return (angle + math.pi) % (2 * math.pi) - math.pi
@@ -52,7 +52,17 @@ class PlannerOmniVLANode(Node):
         self._goal_done = False
 
         # ROS I/O
-        self.pub_cmd = self.create_publisher(Twist, "/cmd_vel", 10)
+
+        choice = input("Publish? 1 or 0: ")
+        
+        if(int(choice) == 1):
+            self.pub_cmd = self.create_publisher(Twist, '/cmd_vel', 10)
+            print("Publishing to cmd_vel")
+        else:
+            self.pub_cmd = self.create_publisher(Twist, "/dont_publish", 1)
+            print("Not publishing!")
+
+        self.req_goal_pub = self.create_publisher(Empty, "/req_goal", 10)
         self.pub_req_goal = self.create_publisher(Empty, "/req_goal", 10)
         self.create_subscription(Odometry, "/odom", self.on_odom, self.qos_profile)
         self.create_subscription(PoseStamped, "/next_goal", self.on_goal, self.qos_profile)
@@ -68,10 +78,9 @@ class PlannerOmniVLANode(Node):
     def on_odom(self, msg: Odometry):
         p = msg.pose.pose.position
         q = msg.pose.pose.orientation
-        yaw = math.atan2(
-            2.0 * (q.w * q.z + q.x * q.y),
-            1.0 - 2.0 * (q.y * q.y + q.z * q.z),
-        )
+        rot_q = msg.pose.pose.orientation
+        roll,pitch,yaw = R.from_quat([rot_q.x, rot_q.y, rot_q.z, rot_q.w]).as_euler('xyz')
+
         with self._lock:
             self._pose = (p.x, p.y, yaw)
 
@@ -79,6 +88,13 @@ class PlannerOmniVLANode(Node):
         with self._lock:
             self._goal = (msg.pose.position.x, msg.pose.position.y)
             self._goal_done = False
+
+    def atGoal(self, dist, heading_err):
+        if self._pose is None or self._goal is None:
+            return False
+        elif dist <= self.goal_tol and abs(heading_err) <= self.yaw_tol:
+            return True
+        return False
 
     # Control
     def _control_step(self):
@@ -94,20 +110,19 @@ class PlannerOmniVLANode(Node):
         dist = math.hypot(dx, dy)
         heading_err = clip_angle(math.atan2(dy, dx) - yaw)
 
-        if dist < self.goal_tol and abs(heading_err) < self.yaw_tol:
-            if not goal_done:
-                self.pub_req_goal.publish(Empty())
-                with self._lock:
-                    self._goal_done = True
-            cmd = Twist()
-            self.pub_cmd.publish(cmd)
-            return
-
-        linear_vel_value, angular_vel_value = self._compute_cmd(dx, dy, heading_err)
-
         cmd = Twist()
-        cmd.linear.x = linear_vel_value
-        cmd.angular.z = angular_vel_value
+        if self.atGoal(dist, heading_err):
+            self.pub_req_goal.publish(Empty())
+            with self._lock:
+                self._goal_done = True
+            cmd.linear.x = 0.0
+            cmd.angular.z = 0.0
+
+        else:
+            linear_vel_value, angular_vel_value = self._compute_cmd(dx, dy, heading_err)
+            cmd.linear.x = linear_vel_value
+            cmd.angular.z = angular_vel_value
+
         self.pub_cmd.publish(cmd)
 
     def _compute_cmd(self, dx: float, dy: float, heading_err: float):
@@ -150,7 +165,6 @@ class PlannerOmniVLANode(Node):
                     angular_vel_value_limit = maxw * math.copysign(1.0, angular_vel_value)
 
         return linear_vel_value_limit, angular_vel_value_limit
-
 
 def main():
     rclpy.init()

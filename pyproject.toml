@@ -66,12 +66,9 @@ dependencies = [
     "av",
     "opencv-python==4.6.0.66", 
     "prettytable",
-    "pycryptodomex",
-    "gnupg",
-    "rospkg"
-
+    "numpy"
 ]
 
 [tool.setuptools]
 # Make the internal code importable (e.g., `import policy_sources`)
-packages = ["datasets", "testing", "policy_sources", "evaluation"]
+packages = ["datasets", "testing", "policy_sources", "evaluation", "deployment"]

@@ -9,6 +9,7 @@
 # Collision Avoidance (1997).
 
 
+import time
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
@@ -19,7 +20,7 @@ import numpy as np
 
 # Message types
 from std_msgs.msg import Empty
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from scipy.spatial.transform import Rotation as R
@@ -33,70 +34,27 @@ class LaserScanConfig:
     range_min: float = 0.25         # meters
     range_max: float = 4.0          # meters
     scan_skip: int = 1              # idxs
+    laser_assigned: bool = False
 
 class RobotConfig():
 
-    max_speed = 1.0        # [m/s]
+    max_speed = 0.1        # [m/s]
     min_speed = 0.0        # [m/s]
-    max_yawrate = 0.175    # [rad/s]
+    max_yawrate = 0.4    # [rad/s]
     max_accel = 1          # [m/s^2]
     max_dyawrate = 3.2     # [rad/s^2]
 
-    v_reso = 0.05          # [m/s]
-    yawrate_reso = 0.02    # [rad/s]
+    v_reso = 0.005          # [m/s]
+    yawrate_reso = 0.01    # [rad/s]
 
-    dt = 0.025             # [s]
-    predict_time = 0.5     # [s]
+    dt = 0.1             # [s]
+    predict_time = 1.5     # [s]
 
-    to_goal_cost_gain = 18  # lower = detour
-    speed_cost_gain = 5     # lower = faster
-    obs_cost_gain = 0       # lower = fearless
+    to_goal_cost_gain = 1  # lower = detour
+    speed_cost_gain = 100     # lower = faster
+    obs_cost_gain = 0.01       # lower = fearless
 
-    robot_radius = 0.33
-
-class Obstacles():
-    def __init__(self):
-        # Set of coordinates of obstacles in view
-        self.obst = np.zeros((0,2), dtype=float)
-        self.collision_status = False
-        self.laserscan_config = LaserScanConfig()
-        self.obs_resolution = 0.05
-        self.norm_factor = 1 / self.obs_resolution
-
-    def assignObs(self, msg, config):
-        """
-        Vectorized obstacle extraction from LaserScan.
-        Assumes config has x, y, th fields for the robot pose in world frame.
-        """
-        ranges = np.asarray(msg.ranges, dtype=float)
-        deg = ranges.shape[0]
-        self.obst = np.zeros((0,2), dtype=float)
-        if deg == 0:
-            return
-
-        angle_per_slot = 2.0 * math.pi / deg
-        angles = (np.arange(deg) - deg / 2.0) * angle_per_slot  # map to [-pi, pi]
-
-        valid = np.isfinite(ranges) & (ranges < self.laserscan_config.range_max)
-        if not valid.any():
-            self.collision_status = False
-            return
-
-        dist_valid = ranges[valid]
-        self.collision_status = bool((dist_valid < self.laserscan_config.range_min).any())
-
-        th = getattr(config, "yaw", 0.0)
-        x0 = getattr(config, "x", 0.0)
-        y0 = getattr(config, "y", 0.0)
-
-        obj_theta = angles[valid] + th
-        obs_x = x0 + dist_valid * np.cos(obj_theta)
-        obs_y = y0 + dist_valid * np.sin(obj_theta)
-
-        obs = np.stack([np.round(obs_x * self.norm_factor) / self.norm_factor,
-                        np.round(obs_y * self.norm_factor) / self.norm_factor], axis=1)
-        obs_unique = np.unique(obs, axis=0)
-        self.obst = obs_unique
+    robot_radius = 0.2
  
 class Planner(Node):
     def __init__(self):
@@ -109,13 +67,18 @@ class Planner(Node):
         )
 
         self.config = RobotConfig()
-        self.obs = Obstacles()
-        
-        self.sub_odom = self.create_subscription(Odometry, '/odom_lidar', self.on_odom, self.qos_profile)        # self.sub_laser = self.create_subscription(LaserScan, '/j100_0707/sensors/lidar3d_0/scan', lambda msg: self.obs.assignObs(msg, self.config), self.qos_profile)
-        self.sub_goal = self.create_subscription(Twist, '/target/position', self.on_goal_cartesian_rf, self.qos_profile)
-        # self.sub_laser = self.create_subscription(LaserScan, '/scan', lambda msg: self.obs.assignObs(msg, self.config), self.qos_profile)
 
-        choice = input("Publish? 1 or 0")
+        # Laserscan variables
+        self.obst = np.zeros((0,2), dtype=float)
+        self.laserscan_config = LaserScanConfig()
+        self.obs_resolution = 0.05
+        self.norm_factor = 1 / self.obs_resolution
+        
+        self.sub_odom = self.create_subscription(Odometry, '/odom', self.on_odom, self.qos_profile)
+        self.sub_goal = self.create_subscription(PoseStamped, '/next_goal', self.on_goal_cartesian_rf, self.qos_profile)
+        # self.sub_laser = self.create_subscription(LaserScan, '/scan', self.on_laserscan , self.qos_profile)
+
+        choice = input("Publish? 1 or 0: ")
         
         if(int(choice) == 1):
             self.ctrl_pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -151,8 +114,8 @@ class Planner(Node):
             msg.linear.x: x
             msg.linear.y: y
         """
-        gX = msg.linear.x
-        gY = msg.linear.y
+        gX = msg.pose.position.x
+        gY = msg.pose.position.y
 
         if self.odom_assigned:
             self.goalX =  self.x + gX*np.cos(self.yaw) - gY*np.sin(self.yaw)
@@ -165,8 +128,8 @@ class Planner(Node):
             msg.linear.x: x     (m)
             msg.linear.y: y     (m)
         """
-        self.goalX = msg.linear.x
-        self.goalY = msg.linear.y
+        self.goalX = msg.pose.position.x
+        self.goalY = msg.pose.position.y
         self._goal_req_sent = False
 
     def on_goal_spherical_rf(self, msg):
@@ -175,8 +138,8 @@ class Planner(Node):
             msg.linear.x: radius    (m)
             msg.linear.y: theta     (deg)
         """
-        radius = msg.linear.x # this will be r
-        theta = np.deg2rad(msg.linear.y) # this will be theta
+        radius = msg.pose.position.x # this will be r
+        theta = np.deg2rad(msg.pose.position.y) # this will be theta
 
         # Goal wrt robot frame
         goalX_rob = radius * np.cos(theta)
@@ -193,8 +156,8 @@ class Planner(Node):
             msg.linear.x: radius    (m)
             msg.linear.y: theta     (deg)
         """
-        radius = msg.linear.x # this will be r
-        theta = np.deg2rad(msg.linear.y) # this will be theta
+        radius = msg.pose.position.x # this will be r
+        theta = np.deg2rad(msg.pose.position.y) # this will be theta
 
         # Goal wrt robot frame
         self.goalX = radius * np.cos(theta)
@@ -216,16 +179,69 @@ class Planner(Node):
         self.X[0] = self.x
         self.X[1] = self.y
         self.X[2] = self.yaw
+        self.X[3] = self.v_x
+        self.X[4] = self.w_z
 
         self.odom_assigned = True
 
+    def on_laserscan(self, msg):
+        """
+        Vectorized obstacle extraction from LaserScan.
+        Assumes config has x, y, th fields for the robot pose in world frame.
+        """
+
+        if not self.laserscan_config.laser_assigned:
+            self.laserscan_config.angle_min = msg.angle_min
+            self.laserscan_config.angle_max = msg.angle_max
+            self.laserscan_config.range_min = msg.range_min
+            self.laserscan_config.range_max = msg.range_max
+            self.laserscan_config.angle_increment = msg.angle_increment
+            self.laserscan_config.laser_assigned = True
+            return
+        ranges = np.asarray(msg.ranges, dtype=float)
+        deg = ranges.shape[0]
+        self.obst = np.zeros((0, 2), dtype=float)
+
+        if deg == 0:
+            return
+
+        # Angles for each beam, from the message
+        angles = self.laserscan_config.angle_min + np.arange(deg) * self.laserscan_config.angle_increment  # [rad]
+        angle_per_slot = 2.0 * math.pi / deg
+        angles = (np.arange(deg)) * angle_per_slot  # map to [-pi, pi]
+
+        valid = np.isfinite(ranges) & (ranges < self.laserscan_config.range_max)
+        if not valid.any():
+            return
+
+        dist_valid = ranges[valid]
+
+        th = self.yaw
+        x0 = self.x
+        y0 = self.y
+
+        obj_theta = angles[valid] + th
+        obs_x = x0 + dist_valid * np.cos(obj_theta)
+        obs_y = y0 + dist_valid * np.sin(obj_theta)
+
+        obs = np.stack([np.round(obs_x * self.norm_factor) / self.norm_factor,
+                        np.round(obs_y * self.norm_factor) / self.norm_factor], axis=1)
+        obs_unique = np.unique(obs, axis=0)
+        self.obst = obs_unique
+
+    def goalDefined(self):
+        if self.goalX is not None and self.goalY is not None:   
+            return True
+
+        if not self._goal_req_sent:
+            self.req_goal_pub.publish(Empty())
+            self._goal_req_sent = True     
+        return False
+    
     def atGoal(self):
         if not self.odom_assigned:
             return False
-        elif self.goalX is None or self.goalY is None:
-            if not self._goal_req_sent:
-                self.req_goal_pub.publish(Empty())
-                self._goal_req_sent = True
+        elif self.goalX is None or self.goalY is None:         
             return False
         elif np.linalg.norm(self.X[:2] - np.array([self.goalX, self.goalY])) <= self.config.robot_radius:
             if not self._goal_req_sent:
@@ -247,7 +263,7 @@ class Planner(Node):
 
         #  [vmin, vmax, yawrate min, yawrate max]
         dw = [max(Vs[0], Vd[0]), max(self.config.min_speed, min(Vs[1], Vd[1])),
-              max(Vs[2], Vd[2]), max(min(Vs[3], Vd[3]), self.config.min_yawrate)]
+              max(Vs[2], Vd[2]), max(min(Vs[3], Vd[3]), -self.config.max_yawrate)]
 
         return dw
     
@@ -295,10 +311,10 @@ class Planner(Node):
         trajs: (M, T, 5) array of trajectories.
         Returns cost per trajectory: inf on collision, else 1/min_distance.
         """
-        if self.obs is None or self.obs.obst.size == 0:
+        if self.obst is None or self.obst.size == 0:
             return np.zeros(trajs.shape[0], dtype=float)
 
-        obs = np.array(self.obs.obst, dtype=float)        # (N,2)
+        obs = np.array(self.obst, dtype=float)        # (N,2)
         traj_pts = trajs[:, ::skip_n, :2]           # (M, T/skip, 2)
 
         diff = traj_pts[:, :, None, :] - obs[None, None, :, :]  # (M, T, N, 2)
@@ -312,7 +328,7 @@ class Planner(Node):
         costs[~collided] = 1.0 / np.maximum(min_d[~collided], 1e-6)
         return costs
 
-    def calc_final_input(self, dw: list[float], ob: Optional[Obstacles] = None):
+    def calc_final_input(self, dw):
 
         trajs = []
         action_pairs = []
@@ -329,7 +345,9 @@ class Planner(Node):
         to_goal_costs = self.config.to_goal_cost_gain * self.calc_to_goal_cost(trajs)
         speed_costs = self.config.speed_cost_gain * np.abs(self.config.max_speed - trajs[:, -1, 3]) 
         
-        # ob_costs = self.config.obs_cost_gain * self.calc_obstacle_cost(trajs, ob, self.config)
+        ob_costs = self.config.obs_cost_gain * self.calc_obstacle_cost(trajs)
+
+        # print("Obstacle costs:", ob_costs)
         # final_cost = to_goal_costs + ob_costs + speed_costs
         final_cost = to_goal_costs + speed_costs
 
@@ -340,15 +358,19 @@ class Planner(Node):
         
         return np.array(action_pairs[np.argmin(final_cost)])
 
-    def dwa_control(self, ob: Optional[Obstacles] = None):
+    def dwa_control(self):
         dw = self.calc_dynamic_window()
-        U = self.calc_final_input(dw, ob)   
+        U = self.calc_final_input(dw)   
         return U
 
     def main_loop(self):
         if self.odom_assigned:
-            if not self.atGoal():
 
+            if not self.goalDefined():
+                self.get_logger().info("Goal not defined!")
+            
+            elif not self.atGoal() and self.goalX is not None and self.goalY is not None:
+                t1 = time.time()
                 self.U = self.dwa_control()
                 self.X[0] = self.x
                 self.X[1] = self.y
@@ -357,12 +379,15 @@ class Planner(Node):
                 self.X[4] = self.U[1]
                 self.speed.linear.x = self.X[3]
                 self.speed.angular.z = self.X[4]
+                t2 = time.time()
+                self.get_logger().info(f"Executing DWA control. Time taken: {t2 - t1:.4f} seconds")
             else:
                 self.get_logger().info("Goal reached!")
                 self.speed.linear.x = 0.0
                 self.speed.angular.z = 0.0
+                self.goalX = None
+                self.goalY = None
                 self.X = np.array([self.x, self.y, self.yaw, 0.0, 0.0])
-            # print("Speed values :" + str(self.speed))
             self.ctrl_pub.publish(self.speed)
 
     def run(self):
