@@ -58,6 +58,7 @@ load_pretrained: True
 pretrained_model_path: ./weights/vint.pth
 load_opt_sched: False
 chop_finetuned_path: ./weights/chop_vint.pth
+context_update_period: 0.2
 
 datasets:
   scand_a:

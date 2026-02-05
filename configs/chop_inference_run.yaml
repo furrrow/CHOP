@@ -1,0 +1,15 @@
+########### Config for Omnivla ###########
+omnivla:
+  config_path : ./configs/chop_omnivla.yaml
+
+########### Config for ViNT ###########
+vint:
+  config_path : ./configs/chop_vint_vnt.yaml
+
+########### Config for GNM ###########
+gnm:
+  config_path : ./configs/chop_gnm_vnt.yaml
+
+########### Config for NoMAD ###########
+nomad:
+  config_path : ./configs/chop_nomad_vnt.yaml
