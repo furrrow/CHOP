@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections import Counter
+from tqdm import tqdm
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, MutableMapping, Optional, Tuple
 import numpy as np
@@ -170,7 +171,7 @@ def preprocess_scand(
     test_count = 0
 
     with _JsonArrayWriter(train_path, pretty=True) as train_writer, _JsonArrayWriter(test_path, pretty=True) as test_writer:
-        for json_file in sorted(scand_dir.glob("*.json")):
+        for json_file in tqdm(sorted(scand_dir.glob("*.json"))):
             entries = _process_annotation_file(json_file, images_root, image_ext, num_points)
             if not entries:
                 continue
@@ -200,7 +201,8 @@ def main() -> None:
     parser.add_argument(
         "--images-root",
         type=Path,
-        default=Path(__file__).resolve().parent.parent / "data" / "images",
+        # default=Path(__file__).resolve().parent.parent / "data" / "images",
+        default=Path("/media/jim/Ironwolf/datasets/scand_data/images"),
         help="Root directory containing extracted SCAND images (organized by bag name).",
     )
     parser.add_argument(

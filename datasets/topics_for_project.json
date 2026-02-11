@@ -1,0 +1,17 @@
+{
+    "spot" : {
+        "camera" : "/image_raw/compressed", 
+        "laserscan" : "/scan", 
+        "odom" : "/odom",
+        "amrl_odom": "/localization",
+        "tf" : "/tf",
+        "width" : 0.5
+    },
+    "jackal" : {
+        "camera" : "/camera/rgb/image_raw/compressed", 
+        "laserscan" : "/velodyne_2dscan", 
+        "odom" : "/jackal_velocity_controller/odom",
+        "width" : 0.43
+    }
+
+}
