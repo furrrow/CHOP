@@ -12,90 +12,73 @@ from preprocess_scand_a_chop import _process_annotation_file, _JsonArrayWriter
 import os
 import cv2
 from dataclasses import dataclass
-import math
+import time
 
 from vis_utils import point_to_traj, make_corridor_polygon, draw_polyline, draw_corridor, transform_points, \
-    project_points_cam, load_calibration, camray_to_ground_in_base
+    project_points_cam, load_calibration, clean_2d, project_clip, make_corridor_polygon_from_cam_lines
 from traj_utils import solve_arc_from_point
 
 
 Annotation = MutableMapping[str, Any]
 PathDict = Dict[str, Any]
+# Colors (BGR)
+RED = (0, 0, 255)    # RED
+GREEN = (0, 255, 0)    # GREEN
+YELLOW = (0, 255, 255)    # YELLOW
 
 @dataclass
 class FrameItem:
     idx: int
-    stamp: object   # rospy.Time
     img: np.ndarray
-    r: float
-    theta: float
-    sub_goal : list   # [x, y, z] in base_link
-    width_m : float
-    u : float
-    v : float
-    stop : bool
+    position: np.ndarray
+    velocity: float
+    omega: float
+    rotation: np.ndarray
+    yaw: float
 
+@dataclass
+class PathItem:
+    path_points: np.ndarray
+    left_boundary: np.ndarray
+    right_boundary: np.ndarray
 
-def draw(frame_item: FrameItem, K: np.ndarray, dist, T_cam_from_base: np.ndarray, window: str = "SCAND Verification"):
-    cv2.namedWindow(window, cv2.WINDOW_NORMAL)
-
-    COLOR_PATH = (0, 0, 255)  # red
-    COLOR_CLICK = (255, 0, 0)  # green
+def draw(frame_item: FrameItem, path_0: PathItem, path_1: PathItem, K: np.ndarray, dist, T_cam_from_base: np.ndarray,
+         window_name: str = "SCAND preference vis"):
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
 
     current_img = frame_item.img
-    x_base, y_base, z_base = frame_item.sub_goal
-    width_m = frame_item.width_m
-    r, theta = frame_item.r, frame_item.theta
-    u, v = frame_item.u, frame_item.v
-    stop = frame_item.stop
-    T_horizon = 2.0  # Path generation options
-    num_t_samples = 10
+    if current_img is None:
+        return
+    img = current_img.copy()
+    img_h, img_w = img.shape[:2]
+    points_2d_0 = clean_2d(
+        project_clip(path_0.path_points, T_cam_from_base, K, dist, img_h, img_w, smooth_first=True),
+        img_w, img_h)
+    left_2d_0 = clean_2d(
+        project_clip(path_0.left_boundary, T_cam_from_base, K, dist, img_h, img_w, smooth_first=True),
+        img_w, img_h)
+    right_2d_0 = clean_2d(
+        project_clip(path_0.right_boundary, T_cam_from_base, K, dist, img_h, img_w, smooth_first=True),
+        img_w, img_h)
 
-    if not stop:
-        r, theta = solve_arc_from_point(x_base, y_base)
-        # print(x_base, y_base)
-        path_points, v_x, w, t_samples, theta_samples = point_to_traj(r, theta, T_horizon, num_t_samples, x_base, y_base)
-        left_b, right_b, poly_b = make_corridor_polygon(path_points, theta_samples, width_m, bridge_pts=20)
+    poly_2d_0 = make_corridor_polygon_from_cam_lines(left_2d_0, right_2d_0)
+    # draw_polyline(img, points_2d, 2, color)
+    # draw_corridor(img, poly_2d, left_2d, right_2d, fill_alpha=0.35, fill_color=RED, edge_thickness=2)
+    draw_corridor(img, poly_2d_0, left_2d_0, right_2d_0, fill_alpha=0.35, fill_color=GREEN, edge_thickness=2)
 
-        # print(path_points[-10:, :])
+    left_2d_1 = clean_2d(
+        project_clip(path_1.left_boundary, T_cam_from_base, K, dist, img_h, img_w, smooth_first=True),
+        img_w, img_h)
+    right_2d_1 = clean_2d(
+        project_clip(path_1.right_boundary, T_cam_from_base, K, dist, img_h, img_w, smooth_first=True),
+        img_w, img_h)
+    poly_2d_1 = make_corridor_polygon_from_cam_lines(left_2d_1, right_2d_1)
+    # draw_polyline(img, points_2d, 2, color)
+    draw_corridor(img, poly_2d_1, left_2d_1, right_2d_1, fill_alpha=0.35, fill_color=RED, edge_thickness=2)
 
-        # 4) Transform to camera and project
-        traj_c = transform_points(T_cam_from_base, path_points)
-        left_c = transform_points(T_cam_from_base, left_b)
-        right_c = transform_points(T_cam_from_base, right_b)
-        poly_c = transform_points(T_cam_from_base, poly_b)
 
-        # print(traj_c[-10:, :])
-
-        ctr_2d = project_points_cam(K, dist, traj_c)
-        left_2d = project_points_cam(K, dist, left_c)
-        right_2d = project_points_cam(K, dist, right_c)
-        poly_2d = project_points_cam(K, dist, poly_c)
-        # Project to image
-
-        # print(ctr_2d[-10:, :])
-
-        # print("\n")
-        # print("Next")
-        # print("\n")
-
-        if current_img is None:
-            return
-        img = current_img.copy()
-
-        draw_polyline(img, ctr_2d, 2, COLOR_PATH)
-        draw_corridor(img, poly_2d, left_2d, right_2d,
-                      fill_alpha=0.35, fill_color=COLOR_PATH, edge_color=COLOR_PATH, edge_thickness=2)
-
-        cv2.circle(img, (int(u), int(v)), 5, COLOR_CLICK, -1)
-    else:
-        ## transclucent red overlay for stop
-        img = current_img.copy()
-        overlay = img.copy()
-        overlay[:] = (0, 0, 255)
-        img[:] = cv2.addWeighted(overlay, 0.3, img, 0.7, 0)
-
-    cv2.imshow(window, img)
+    cv2.imshow(window_name, img)
+    cv2.waitKey()
 
 def visualize_scand(
     scand_dir: Path,
@@ -121,19 +104,16 @@ def visualize_scand(
         entries = _process_annotation_file(json_file, images_root, image_ext, num_points)
         for idx, i_entry in enumerate(entries):
             image_full_path = os.path.join(images_root, i_entry['image_path'])
-            fr = FrameItem(idx=idx,
-                           stamp=None,
-                           img=cv2.imread(image_full_path),
-                           r=1.0,
-                           theta=1.0,
-                           sub_goal=[50, 50, 0],
-                           width_m=1.0,
-                           u=1.0,
-                           v=1.0,
-                           stop=False)
-            draw(fr, K , dist, T_cam_from_base)
-            print(entries)
-            break
+            frame_item = FrameItem(idx=idx, img=cv2.imread(image_full_path),
+                                   position=np.array([0, 0]), velocity=1.0, omega=0.0,
+                                   rotation=np.array([0, 0]), yaw=0.0)
+            path_0 = PathItem(path_points=np.array(i_entry['path_0']['points']),
+                                 left_boundary=np.array(i_entry['path_0']['left_boundary']),
+                                 right_boundary=np.array(i_entry['path_0']['right_boundary']))
+            path_1 = PathItem(path_points=np.array(i_entry['path_1']['points']),
+                              left_boundary=np.array(i_entry['path_1']['left_boundary']),
+                              right_boundary=np.array(i_entry['path_1']['right_boundary']))
+            draw(frame_item, path_0, path_1, K , dist, T_cam_from_base)
 
 
 def main() -> None:
